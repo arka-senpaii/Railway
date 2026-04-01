@@ -1,4 +1,4 @@
-﻿# 🚂 Smart Railway Automation System
+# 🚂 Smart Railway Automation System
 
 ![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
 ![Firebase](https://img.shields.io/badge/Firebase-Realtime-orange.svg)
@@ -12,7 +12,7 @@ An enterprise-grade IoT railway crossing automation system powered by a Raspberr
 ## 🌟 Key Features
 
 * **Real-time Live Dashboard:** A modern, glassmorphism web interface reflecting real-time physical states of the station, gate, traffic lights, and incoming trains.
-* **Intelligent Train Tracking:** Uses a KY-032 IR sensor for physical block detection and MFRC522 RFID components for train identification.
+* **Intelligent Train Tracking:** Uses two KY-032 IR sensors (In/Out) for physical block detection and MFRC522 RFID components for train identification.
 * **Live Station Timetable:** A dynamic web table syncs securely with the Raspberry Pi to display scheduled arrivals for the current day, automatically highlighting approaching trains.
 * **Multilingual Audio Announcements:** Text-to-Speech (TTS) engine dynamically structures spoken sequences in English, Bengali, and Hindi. Intelligently spaces train numbers (e.g., `1 2 2 8 2`) for precise spelling playback. Includes safe fallback to standard station audio (`project.mp3`) if local generation encounters issues.
 * **Station Master Manual Override:** Remotely trigger passenger announcements or override gate & traffic light behaviors securely from the web dashboard.
@@ -33,7 +33,7 @@ The project splits into a **Hardware Controller** (Python) and a **Command Dashb
 | **Frontend** | HTML5, CSS3, Vanilla JavaScript |
 | **Text-to-Speech**| Google Text-to-Speech (`gTTS`) |
 | **Audio Processing**| `pydub`, `playsound`, `ffplay` |
-| **Hardware Components**| KY-032 IR Sensor, MFRC522 RFID, SG90 Servo, LEDs |
+| **Hardware Components**| 2x KY-032 IR Sensors (In & Out), MFRC522 RFID, SG90 Servo, LEDs |
 
 ---
 
@@ -44,7 +44,7 @@ SmartRailway/
 ├── raspberry_pi/           # Raspberry Pi Main Controller
 │   ├── main.py             # Core state-machine loop
 │   ├── config.py           # PIN declarations & Constants
-│   ├── sensors.py          # IR sensor & RFID handling
+│   ├── sensors.py          # Dual IR sensors & RFID handling
 │   ├── actuators.py        # Servo, LEDs, Buzzers
 │   ├── firebase_client.py  # Database wrapper & queueing logic
 │   ├── announcement.py     # Multilingual TTS formulation & audio execution
@@ -70,7 +70,7 @@ SmartRailway/
 ## 🚀 Quick Start / Installation
 
 ### 1. Hardware Initialization
-Connect the IR Sensor, RFID reader, Servo Motor, and Traffic LEDs according to the GPIO pinouts mapped in `config.py`. For exact schematics, refer to [CIRCUIT_DIAGRAM.md](docs/CIRCUIT_DIAGRAM.md).
+Connect the two IR Sensors (In/Out), RFID reader, Servo Motor, and Traffic LEDs according to the GPIO pinouts mapped in `config.py`. For exact schematics, refer to [CIRCUIT_DIAGRAM.md](docs/CIRCUIT_DIAGRAM.md).
 
 ### 2. Firebase Connectivity
 Ensure you have created a Realtime Database on Firebase.

@@ -5,7 +5,7 @@
 The system operates as a 4-state machine:
 
 ```
-  ┌──────────┐    IR detects     ┌──────────────┐
+  ┌──────────┐   IN IR detects   ┌──────────────┐
   │          │───────────────────▶│              │
   │   IDLE   │                   │  APPROACHING │
   │  (green) │                   │   (yellow)   │
@@ -29,7 +29,7 @@ The system operates as a 4-state machine:
 ```
 START
 ├── Initialize GPIO pins (BCM mode)
-├── Set up IR sensor (GPIO17, pull-up, active-low)
+├── Set up IR sensors (GPIO17=IN, GPIO16=OUT, pull-up, active-low)
 ├── Set up RFID reader (SPI interface, GPIO25 RST)
 ├── Set up Servo (GPIO18, PWM 50Hz)
 ├── Set up LEDs (GPIO27=Red, GPIO22=Yellow, GPIO23=Green)
@@ -56,8 +56,8 @@ IDLE:
 ├── Traffic light = GREEN
 ├── Gate = OPEN
 ├── Buzzer = OFF
-├── POLL IR sensor
-│   ├── If obstacle detected:
+├── POLL IN IR sensor
+│   ├── If obstacle detected by IN sensor:
 │   │   ├── Record detection timestamp
 │   │   ├── Transition → APPROACHING
 │   │   ├── Set traffic light → YELLOW
@@ -69,7 +69,7 @@ IDLE:
 ### 4. APPROACHING State
 ```
 APPROACHING:
-├── If IR still detects → update last_detection_time
+├── If IN IR still detects → update last_detection_time
 ├── Attempt RFID read:
 │   ├── If card read → lookup train in adrajndet.csv
 │   ├── Get Train_No, Train_Name, Platform_No
@@ -90,10 +90,12 @@ APPROACHING:
 ### 5. PASSING State
 ```
 PASSING:
-├── POLL IR sensor:
-│   ├── If still detecting → update last_detection_time
-│   └── If NOT detecting:
-│       ├── Check if TRAIN_CLEAR_TIMEOUT elapsed since last detection
+├── Check if MAX_PASSING_TIMEOUT elapsed (failsafe):
+│   ├── If YES → Reset to IDLE (DEPARTED)
+├── POLL OUT IR sensor:
+│   ├── If OUT sensor detects → Mark train as reached OUT
+│   └── If OUT sensor NOT detecting:
+│       ├── Check if train had previously reached OUT
 │       └── If YES → Transition → DEPARTED
 ```
 
@@ -148,7 +150,7 @@ MANUAL_OVERRIDE:
 
 | Error | Detection | Recovery |
 |-------|-----------|----------|
-| IR sensor failure | No reads for extended period | Log warning, continue with RFID only |
+| IR sensor failure | No reads for extended period from IN/OUT sensors | Log warning, continue with RFID only |
 | RFID read error | Exception in read_card() | Log error, continue without train ID |
 | Internet loss | Firebase write exception | Queue writes locally, retry on reconnection |
 | Servo stall | Timeout on angle set | Reset PWM, retry once |

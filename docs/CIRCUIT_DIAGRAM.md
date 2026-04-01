@@ -5,7 +5,7 @@
 | # | Component | Qty | Purpose |
 |---|-----------|-----|---------|
 | 1 | Raspberry Pi 3B+ | 1 | Main controller |
-| 2 | KY-032 IR Sensor | 1 | Train detection |
+| 2 | KY-032 IR Sensors | 2 | Train detection (In & Out) |
 | 3 | MFRC522 RFID Module | 1 | Train identification |
 | 4 | SG90 Servo Motor | 1 | Railway gate control |
 | 5 | Red LED (5mm) | 1 | Traffic light — stop |
@@ -28,7 +28,8 @@
 ├─────────────────┬───────────────────────────────────────┤
 │  Pin (BCM)      │  Connected To                        │
 ├─────────────────┼───────────────────────────────────────┤
-│  GPIO 17        │  KY-032 IR Sensor — OUT pin           │
+│  GPIO 17        │  KY-032 IR Sensor (IN) — OUT pin      │
+│  GPIO 16        │  KY-032 IR Sensor (OUT) — OUT pin     │
 │  GPIO 18 (PWM)  │  Servo Motor — Signal (orange wire)   │
 │  GPIO 22        │  Yellow LED (via 220Ω resistor)       │
 │  GPIO 23        │  Green LED (via 220Ω resistor)        │
@@ -42,7 +43,7 @@
 │  GPIO 10 (MOSI) │  MFRC522 RFID — MOSI                  │
 │  GPIO 11 (SCLK) │  MFRC522 RFID — SCK                   │
 │                 │                                       │
-│  3.3V           │  MFRC522 VCC, KY-032 VCC               │
+│  3.3V           │  MFRC522 VCC, 2x KY-032 VCC            │
 │  5V             │  Servo VCC (red wire)                  │
 │  GND            │  Common ground for all components      │
 └─────────────────┴───────────────────────────────────────┘
@@ -52,14 +53,15 @@
 
 ## Wiring Details
 
-### 1. KY-032 IR Obstacle Sensor
+### 1. KY-032 IR Obstacle Sensors (x2)
 
 ```
-KY-032          Raspberry Pi
-───────         ────────────
-VCC    ──────── 3.3V
-GND    ──────── GND
-OUT    ──────── GPIO 17
+KY-032 (In & Out)   Raspberry Pi
+─────────────────   ────────────
+VCC (Both)  ─────── 3.3V
+GND (Both)  ─────── GND
+OUT (Sensor IN) ─── GPIO 17
+OUT (Sensor OUT)─── GPIO 16
 ```
 
 > **Note**: The KY-032 has a potentiometer to adjust detection distance (3–40 cm). Adjust it for your track width.
@@ -129,8 +131,8 @@ Buzzer          Raspberry Pi
   ┌──────────────────────────────────────────────────┐
   │                    TRACK                          │
   │  ┌─────────┐                    ┌──────────┐     │
-  │  │ KY-032  │  ←── IR Sensor     │ MFRC522  │     │
-  │  │ (detect)│   mounted on       │ (RFID)   │     │
+  │  │2x KY-032│  ←── IR Sensors    │ MFRC522  │     │
+  │  │(In/Out) │   mounted on       │ (RFID)   │     │
   │  └─────────┘   track side       └──────────┘     │
   └──────────────────────────────────────────────────┘
                               │
@@ -143,5 +145,5 @@ Buzzer          Raspberry Pi
                      └─────────────────┘
 ```
 
-Place the IR sensor 30-50cm before the gate so the system has time to react.
+Place the IN IR sensor 30-50cm before the gate so the system has time to react. Place the OUT sensor after the gate.
 Place the RFID reader at track level where the tag on the train will pass close to it.

@@ -8,7 +8,7 @@ Includes desktop-safe stubs so the code can be imported without hardware.
 import time
 import logging
 
-from config import IR_SENSOR_PIN, IR_DEBOUNCE_TIME, RFID_RST_PIN, RFID_TRAIN_MAP
+from config import IR_DEBOUNCE_TIME, RFID_RST_PIN, RFID_TRAIN_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ except ImportError:
 class IRSensor:
     """Wrapper for the KY-032 infrared obstacle-avoidance sensor."""
 
-    def __init__(self, pin: int = IR_SENSOR_PIN):
+    def __init__(self, pin: int):
         self.pin = pin
         self._last_read_time = 0.0
         self._last_value = False

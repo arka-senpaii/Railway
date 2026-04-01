@@ -20,8 +20,8 @@ from datetime import datetime, timezone
 
 from config import (
     TrainState, GateState, LightState,
-    TRAIN_CLEAR_TIMEOUT, YELLOW_WARNING_DURATION,
-    FIREBASE_SYNC_INTERVAL,
+    MAX_PASSING_TIMEOUT, YELLOW_WARNING_DURATION,
+    FIREBASE_SYNC_INTERVAL, IR_SENSOR_IN_PIN, IR_SENSOR_OUT_PIN
 )
 from sensors import IRSensor, RFIDReader
 from actuators import ServoGate, TrafficLight, Buzzer
@@ -60,7 +60,8 @@ class RailwayController:
         logger.info("=" * 60)
 
         # ── Components ──
-        self.ir_sensor = IRSensor()
+        self.ir_sensor_in = IRSensor(pin=IR_SENSOR_IN_PIN)
+        self.ir_sensor_out = IRSensor(pin=IR_SENSOR_OUT_PIN)
         self.rfid_reader = RFIDReader()
         self.gate = ServoGate()
         self.light = TrafficLight()
@@ -76,6 +77,8 @@ class RailwayController:
         self.state = TrainState.IDLE
         self.current_train_id = None
         self._last_detection_time = 0.0
+        self._passing_start_time = 0.0
+        self._out_sensor_triggered = False
         self._running = False
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
@@ -114,7 +117,8 @@ class RailwayController:
         self.gate.open_gate()          # safety: leave gate open
         self.light.all_off()
         self.buzzer.off()
-        self.ir_sensor.cleanup()
+        self.ir_sensor_in.cleanup()
+        self.ir_sensor_out.cleanup()
         self.rfid_reader.cleanup()
         self.gate.cleanup()
         self.light.cleanup()
@@ -156,16 +160,16 @@ class RailwayController:
     # ── State Handlers ───────────────────────────────────────────────────────
 
     def _handle_idle(self):
-        """IDLE: Wait for the IR sensor to detect a train."""
-        if self.ir_sensor.is_obstacle_detected():
-            logger.info("🚆 Train detected by IR sensor!")
+        """IDLE: Wait for the IN IR sensor to detect a train."""
+        if self.ir_sensor_in.is_obstacle_detected():
+            logger.info("🚆 Train detected by IN IR sensor!")
             self._last_detection_time = time.time()
             self._transition_to_approaching()
 
     def _handle_approaching(self):
         """APPROACHING: Warning phase — yellow light, then red + gate close."""
-        # If IR still detects, train is moving to PASSING
-        if self.ir_sensor.is_obstacle_detected():
+        # If IN IR still detects, train is moving to PASSING
+        if self.ir_sensor_in.is_obstacle_detected():
             self._last_detection_time = time.time()
 
         # Try to read RFID for identification
@@ -187,6 +191,8 @@ class RailwayController:
 
         # Move to PASSING state
         self.state = TrainState.PASSING
+        self._passing_start_time = time.time()
+        self._out_sensor_triggered = False
         self.light.set_state(LightState.RED)
         self.gate.close_gate()
         self.buzzer.beep(times=3)
@@ -196,15 +202,22 @@ class RailwayController:
         logger.info("State → PASSING (red light, gate closed)")
 
     def _handle_passing(self):
-        """PASSING: Train is on the track; wait for it to clear."""
-        if self.ir_sensor.is_obstacle_detected():
-            self._last_detection_time = time.time()
-            return  # still passing
-
-        # No detection — check if clear timeout elapsed
-        if time.time() - self._last_detection_time >= TRAIN_CLEAR_TIMEOUT:
-            logger.info("✓ Track clear — train has departed.")
+        """PASSING: Train is on the track; wait for it to clear OUT sensor."""
+        # Fallback timeout
+        if time.time() - self._passing_start_time >= MAX_PASSING_TIMEOUT:
+            logger.warning("TIMEOUT: Train did not reach OUT sensor. Resetting to IDLE.")
             self.state = TrainState.DEPARTED
+            return
+            
+        is_detecting = self.ir_sensor_out.is_obstacle_detected()
+        if is_detecting:
+            if not self._out_sensor_triggered:
+                logger.info("Train has reached the OUT sensor...")
+                self._out_sensor_triggered = True
+        else:
+            if self._out_sensor_triggered:
+                logger.info("✓ Track clear — train has passed OUT sensor.")
+                self.state = TrainState.DEPARTED
 
     def _handle_departed(self):
         """DEPARTED: Open gate, return to IDLE."""

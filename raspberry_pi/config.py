@@ -7,8 +7,9 @@ and Firebase credentials path.
 
 # ─── GPIO Pin Assignments (BCM numbering) ───────────────────────────────────
 
-# KY-032 IR Obstacle Avoidance Sensor
-IR_SENSOR_PIN = 17          # GPIO17 — digital OUT from KY-032
+# KY-032 IR Obstacle Avoidance Sensors
+IR_SENSOR_IN_PIN = 17       # GPIO17 — digital OUT from IN KY-032
+IR_SENSOR_OUT_PIN = 16      # GPIO16 — digital OUT from OUT KY-032
 
 # RFID MFRC522 (SPI interface — fixed pins on RPi)
 # SDA  → GPIO8  (CE0)
@@ -37,7 +38,7 @@ GATE_CLOSE_ANGLE = 90         # degrees — gate fully lowered
 # ─── Timing Thresholds (seconds) ─────────────────────────────────────────────
 
 IR_DEBOUNCE_TIME = 0.3        # debounce for IR sensor reads
-TRAIN_CLEAR_TIMEOUT = 5.0     # seconds of no detection → train departed
+MAX_PASSING_TIMEOUT = 120.0   # fallback seconds clear if OUT sensor fails
 YELLOW_WARNING_DURATION = 2.0 # yellow light before switching to red
 FIREBASE_SYNC_INTERVAL = 1.0  # how often to push status updates
 MANUAL_POLL_INTERVAL = 1.0    # how often to check manual override flag

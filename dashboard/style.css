@@ -1,0 +1,404 @@
+/* ═══════════════════════════════════════════════════════════
+   Smart Railway Dashboard — Styles
+   Dark glassmorphism theme with animated traffic light
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Reset & Variables ───────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg-primary:    #0a0e1a;
+  --bg-card:       rgba(18, 24, 42, 0.75);
+  --bg-card-hover: rgba(24, 32, 54, 0.85);
+  --glass-border:  rgba(255,255,255,0.06);
+  --glass-shadow:  0 8px 32px rgba(0,0,0,0.35);
+
+  --text-primary:  #e8ecf4;
+  --text-secondary:#8892a8;
+  --text-muted:    #555e73;
+
+  --accent-green:  #00ff88;
+  --accent-red:    #ff4757;
+  --accent-yellow: #ffc107;
+  --accent-blue:   #3b82f6;
+
+  --red-glow:      rgba(255,71,87,0.55);
+  --yellow-glow:   rgba(255,193,7,0.55);
+  --green-glow:    rgba(0,255,136,0.55);
+
+  --radius:        16px;
+  --radius-sm:     10px;
+  --transition:    0.3s cubic-bezier(.4,0,.2,1);
+
+  --font-body:     'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:     'JetBrains Mono', 'Fira Code', monospace;
+}
+
+html{font-size:15px;scroll-behavior:smooth}
+
+body{
+  font-family: var(--font-body);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height:100vh;
+  background-image:
+    radial-gradient(ellipse at 20% 0%, rgba(59,130,246,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 100%, rgba(0,255,136,0.05) 0%, transparent 60%);
+}
+
+/* ─── Header ──────────────────────────────────────────────── */
+#main-header{
+  display:flex; justify-content:space-between; align-items:center;
+  padding:1.2rem 2rem;
+  background: linear-gradient(135deg, rgba(16,22,40,0.95), rgba(10,14,26,0.95));
+  border-bottom:1px solid var(--glass-border);
+  backdrop-filter:blur(12px);
+  position:sticky; top:0; z-index:100;
+}
+.header-left{display:flex;align-items:center;gap:1rem}
+.logo-icon{font-size:2.2rem;animation:bob 3s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+#main-header h1{font-size:1.6rem;font-weight:800;letter-spacing:-0.5px;color:var(--accent-green)}
+.subtitle{font-size:.8rem;color:var(--text-secondary);font-weight:400;letter-spacing:1.5px;text-transform:uppercase}
+.header-right{display:flex;align-items:center;gap:1.4rem}
+#clock{font-family:var(--font-mono);font-size:1.1rem;color:var(--accent-green);letter-spacing:1px}
+
+/* Badge */
+.badge{
+  display:inline-flex;align-items:center;gap:.45rem;
+  padding:.35rem .85rem;border-radius:99px;font-size:.75rem;font-weight:600;
+  text-transform:uppercase;letter-spacing:.8px;
+}
+.badge-online{background:rgba(0,255,136,0.12);color:var(--accent-green);border:1px solid rgba(0,255,136,0.25)}
+.badge-offline{background:rgba(255,71,87,0.12);color:var(--accent-red);border:1px solid rgba(255,71,87,0.25)}
+.pulse-dot{
+  width:8px;height:8px;border-radius:50%;
+}
+.badge-online .pulse-dot{background:var(--accent-green);animation:pulse 2s infinite}
+.badge-offline .pulse-dot{background:var(--accent-red)}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 var(--green-glow)}
+  70%{box-shadow:0 0 0 8px transparent}
+  100%{box-shadow:0 0 0 0 transparent}
+}
+
+/* ─── Status Strip ────────────────────────────────────────── */
+#status-strip{
+  display:flex;gap:1rem;padding:1rem 2rem;overflow-x:auto;
+}
+.status-card{
+  flex:1; min-width:180px;
+  display:flex;align-items:center;gap:1rem;
+  padding:1rem 1.4rem;
+  background:var(--bg-card);
+  border:1px solid var(--glass-border);
+  border-radius:var(--radius-sm);
+  backdrop-filter:blur(10px);
+  transition:var(--transition);
+}
+.status-card:hover{background:var(--bg-card-hover);transform:translateY(-2px);box-shadow:var(--glass-shadow)}
+.status-icon{font-size:1.8rem}
+.status-label{font-size:.7rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px;display:block}
+.status-value{font-size:1.15rem;font-weight:700;display:block;margin-top:.15rem}
+
+/* ─── Cards ───────────────────────────────────────────────── */
+.card{
+  background:var(--bg-card);
+  border:1px solid var(--glass-border);
+  border-radius:var(--radius);
+  padding:1.6rem;
+  backdrop-filter:blur(10px);
+  transition:var(--transition);
+}
+.card:hover{box-shadow:var(--glass-shadow)}
+.card-title{
+  font-size:1rem;font-weight:700;color:var(--text-secondary);
+  text-transform:uppercase;letter-spacing:1.5px;margin-bottom:1.2rem;
+  padding-bottom:.6rem;border-bottom:1px solid var(--glass-border);
+}
+
+/* ─── Dashboard Grid ──────────────────────────────────────── */
+#dashboard-grid{
+  display:grid;
+  grid-template-columns: 260px 1fr 300px;
+  gap:1rem;
+  padding:1rem 2rem;
+}
+
+/* ─── Traffic Light ───────────────────────────────────────── */
+.traffic-card{display:flex;flex-direction:column;align-items:center}
+.traffic-light-container{display:flex;flex-direction:column;align-items:center;gap:1rem;flex:1;justify-content:center}
+.traffic-housing{
+  width:90px;padding:18px 15px;
+  background:linear-gradient(180deg,#1a1f2e,#12162a);
+  border-radius:16px;border:2px solid #2a3050;
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  box-shadow:0 10px 40px rgba(0,0,0,0.5);
+}
+.light{
+  width:56px;height:56px;border-radius:50%;
+  background:#1a1f2e;
+  border:2px solid #2a3050;
+  transition:all .4s ease;
+  position:relative;
+}
+.light.red.active{
+  background:radial-gradient(circle at 35% 35%,#ff6b6b,#ff4757 60%,#cc2233);
+  box-shadow:0 0 20px var(--red-glow),0 0 60px var(--red-glow),inset 0 -4px 8px rgba(0,0,0,0.3);
+  border-color:#ff4757;
+}
+.light.yellow.active{
+  background:radial-gradient(circle at 35% 35%,#ffe066,#ffc107 60%,#cc9900);
+  box-shadow:0 0 20px var(--yellow-glow),0 0 60px var(--yellow-glow),inset 0 -4px 8px rgba(0,0,0,0.3);
+  border-color:#ffc107;
+}
+.light.green.active{
+  background:radial-gradient(circle at 35% 35%,#5affc4,#00ff88 60%,#00cc6a);
+  box-shadow:0 0 20px var(--green-glow),0 0 60px var(--green-glow),inset 0 -4px 8px rgba(0,0,0,0.3);
+  border-color:#00ff88;
+}
+.traffic-label{
+  font-size:.8rem;font-weight:600;color:var(--text-secondary);
+  text-align:center;letter-spacing:.5px;
+}
+
+/* ─── Train Info ──────────────────────────────────────────── */
+.train-info-grid{display:flex;flex-direction:column;gap:.65rem;margin-bottom:1.6rem}
+.info-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:.55rem .8rem;border-radius:var(--radius-sm);
+  background:rgba(255,255,255,0.02);
+}
+.info-row:hover{background:rgba(255,255,255,0.04)}
+.info-key{font-size:.8rem;color:var(--text-secondary);font-weight:500}
+.info-val{font-size:.95rem;font-weight:600;color:var(--text-primary)}
+
+/* Gate Visual */
+.gate-visual{
+  position:relative;display:flex;align-items:flex-end;
+  gap:.5rem;height:80px;margin-top:.5rem;
+  padding:1rem;background:rgba(0,0,0,0.15);border-radius:var(--radius-sm);
+  overflow:hidden;
+}
+.gate-post{
+  width:12px;height:60px;
+  background:linear-gradient(180deg,#666,#444);
+  border-radius:3px 3px 0 0;
+  flex-shrink:0;
+}
+.gate-arm{
+  height:10px;width:100%;
+  background:repeating-linear-gradient(90deg,var(--accent-red) 0,var(--accent-red) 18px,#fff 18px,#fff 36px);
+  border-radius:3px;
+  transform-origin:left center;
+  transition:transform 0.6s cubic-bezier(.4,0,.2,1);
+}
+.gate-arm.closed{transform:rotate(0deg)}
+.gate-arm.open{transform:rotate(-80deg)}
+.gate-label{
+  position:absolute;right:1rem;top:50%;transform:translateY(-50%);
+  font-size:.7rem;font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;color:var(--accent-green);
+}
+
+/* ─── Manual Controls ─────────────────────────────────────── */
+.override-toggle-wrap{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:1.2rem;padding:.8rem 1rem;
+  background:rgba(255,255,255,0.03);border-radius:var(--radius-sm);
+}
+.toggle-label{font-size:.85rem;font-weight:600;color:var(--text-secondary)}
+
+/* Toggle Switch */
+.switch{position:relative;display:inline-block;width:50px;height:26px}
+.switch input{opacity:0;width:0;height:0}
+.slider{
+  position:absolute;cursor:pointer;inset:0;
+  background:#2a3050;border-radius:26px;transition:var(--transition);
+}
+.slider::before{
+  content:"";position:absolute;height:20px;width:20px;
+  left:3px;bottom:3px;background:#fff;border-radius:50%;
+  transition:var(--transition);
+}
+input:checked+.slider{background:var(--accent-green)}
+input:checked+.slider::before{transform:translateX(24px)}
+
+.control-group{margin-bottom:1.2rem}
+.control-group h3{font-size:.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:.6rem}
+.btn-row{display:flex;gap:.5rem;flex-wrap:wrap}
+
+.ctrl-btn{
+  flex:1;padding:.65rem .5rem;border:none;border-radius:var(--radius-sm);
+  font-family:var(--font-body);font-size:.8rem;font-weight:600;
+  cursor:pointer;transition:var(--transition);
+  letter-spacing:.3px;
+}
+.ctrl-btn:disabled{opacity:.35;cursor:not-allowed}
+.ctrl-btn:not(:disabled):hover{transform:translateY(-2px);filter:brightness(1.15)}
+.ctrl-btn:not(:disabled):active{transform:translateY(0)}
+
+.btn-open{background:var(--accent-green);color:#000}
+.btn-close{background:var(--accent-red);color:#fff}
+.btn-red{background:var(--accent-red);color:#fff}
+.btn-yellow{background:var(--accent-yellow);color:#000}
+.btn-green{background:var(--accent-green);color:#000}
+
+/* ─── Live Log ────────────────────────────────────────────── */
+.log-card{margin:0 2rem 2rem}
+.log-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem}
+.btn-clear{
+  background:transparent;border:1px solid var(--glass-border);
+  color:var(--text-secondary);padding:.35rem .9rem;border-radius:var(--radius-sm);
+  font-size:.75rem;cursor:pointer;transition:var(--transition);
+}
+.btn-clear:hover{border-color:var(--accent-red);color:var(--accent-red)}
+
+.log-feed{
+  max-height:220px;overflow-y:auto;
+  font-family:var(--font-mono);font-size:.78rem;
+  display:flex;flex-direction:column;gap:2px;
+  padding-right:.3rem;
+}
+.log-feed::-webkit-scrollbar{width:5px}
+.log-feed::-webkit-scrollbar-track{background:transparent}
+.log-feed::-webkit-scrollbar-thumb{background:#2a3050;border-radius:99px}
+
+.log-entry{
+  display:flex;gap:.8rem;padding:.4rem .6rem;
+  border-radius:6px;background:rgba(255,255,255,0.015);
+  animation:fadeIn .3s ease;
+}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.log-entry time{color:var(--text-muted);flex-shrink:0;font-size:.72rem}
+.log-entry span{color:var(--text-secondary)}
+.log-entry.log-success span{color:var(--accent-green)}
+.log-entry.log-error span{color:var(--accent-red)}
+.log-entry.log-warn span{color:var(--accent-yellow)}
+.log-entry.log-info span{color:var(--accent-blue)}
+
+/* ─── Responsive ──────────────────────────────────────────── */
+@media(max-width:1024px){
+  #dashboard-grid{grid-template-columns:1fr 1fr;padding:1rem}
+  .traffic-card{grid-column:span 2}
+  .log-card,.timetable-card{margin:0 1rem 1rem}
+  #status-strip{padding:1rem}
+}
+@media(max-width:640px){
+  #main-header{padding:1rem;flex-direction:column;gap:.6rem}
+  #dashboard-grid{grid-template-columns:1fr;padding:.75rem}
+  .traffic-card{grid-column:span 1}
+  .traffic-housing{flex-direction:row;width:auto;padding:12px 20px;border-radius:99px}
+  .log-card,.timetable-card{margin:0 .75rem .75rem}
+  #status-strip{flex-direction:column;padding:.75rem}
+  .status-card{min-width:auto}
+}
+
+/* ─── Gate Closing Animation ─────────────────────────────── */
+.gate-arm.closing-animation{
+  transform:rotate(-45deg);
+  animation: pulse-warning 1s infinite alternate;
+}
+@keyframes pulse-warning {
+  0%{transform:rotate(-45deg)}
+  100%{transform:rotate(-35deg)}
+}
+
+/* ─── Timetable ──────────────────────────────────────────── */
+.timetable-card{
+  margin:0 2rem 1rem;
+}
+.timetable-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:.8rem;
+}
+.timetable-count{
+  font-size:.78rem;
+  color:var(--text-muted);
+  font-weight:500;
+  letter-spacing:.5px;
+}
+.timetable-wrap{
+  overflow-x:auto;
+  max-height:400px;
+  overflow-y:auto;
+  border-radius:var(--radius-sm);
+}
+.timetable-wrap::-webkit-scrollbar{width:5px;height:5px}
+.timetable-wrap::-webkit-scrollbar-track{background:transparent}
+.timetable-wrap::-webkit-scrollbar-thumb{background:#2a3050;border-radius:99px}
+
+.timetable{
+  width:100%;
+  border-collapse:collapse;
+  font-size:.85rem;
+}
+.timetable thead{
+  position:sticky;
+  top:0;
+  z-index:2;
+}
+.timetable th{
+  text-align:left;
+  padding:.7rem 1rem;
+  font-size:.72rem;
+  font-weight:700;
+  color:var(--text-muted);
+  text-transform:uppercase;
+  letter-spacing:1px;
+  background:rgba(10,14,26,0.95);
+  border-bottom:1px solid var(--glass-border);
+}
+.timetable td{
+  padding:.65rem 1rem;
+  color:var(--text-secondary);
+  border-bottom:1px solid rgba(255,255,255,0.03);
+  white-space:nowrap;
+}
+.timetable tbody tr{
+  transition:background .25s ease, box-shadow .25s ease;
+}
+.timetable tbody tr:hover{
+  background:rgba(255,255,255,0.03);
+}
+
+/* Active / Arriving train row highlight */
+.timetable tbody tr.active-train-row{
+  background:rgba(0,255,136,0.08);
+  box-shadow:inset 3px 0 0 var(--accent-green);
+  animation:row-pulse 2s ease-in-out infinite;
+}
+.timetable tbody tr.active-train-row td{
+  color:var(--text-primary);
+  font-weight:600;
+}
+.timetable tbody tr.active-train-row .train-status-badge{
+  background:rgba(0,255,136,0.15);
+  color:var(--accent-green);
+  border:1px solid rgba(0,255,136,0.3);
+}
+@keyframes row-pulse{
+  0%,100%{background:rgba(0,255,136,0.08)}
+  50%{background:rgba(0,255,136,0.15)}
+}
+
+/* Status badges in timetable */
+.train-status-badge{
+  display:inline-block;
+  padding:.2rem .6rem;
+  border-radius:99px;
+  font-size:.7rem;
+  font-weight:600;
+  letter-spacing:.5px;
+  text-transform:uppercase;
+  background:rgba(255,255,255,0.05);
+  color:var(--text-muted);
+  border:1px solid var(--glass-border);
+}
+
+
+ . g a t e - a r m . c l o s i n g - a n i m a t i o n { t r a n s f o r m : r o t a t e ( - 4 5 d e g ) ;   a n i m a t i o n :   p u l s e - w a r n i n g   1 s   i n f i n i t e   a l t e r n a t e } 
+ @ k e y f r a m e s   p u l s e - w a r n i n g   { 0 % { t r a n s f o r m : r o t a t e ( - 4 5 d e g ) } 1 0 0 % { t r a n s f o r m : r o t a t e ( - 3 5 d e g ) } }  
+ 

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Railway — Live Dashboard</title>
+  <meta name="description" content="Real-time IoT railway automation dashboard with train detection, gate control, and traffic monitoring." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ═══ HEADER ═══ -->
+  <header id="main-header">
+    <div class="header-left">
+      <div class="logo-icon">🚂</div>
+      <div>
+        <h1>Smart Railway</h1>
+        <p class="subtitle">Live Automation Dashboard</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="connection-badge" class="badge badge-offline">
+        <span class="pulse-dot"></span> Offline
+      </span>
+      <time id="clock">--:--:--</time>
+    </div>
+  </header>
+
+  <!-- ═══ STATUS STRIP ═══ -->
+  <section id="status-strip">
+    <div class="status-card" id="train-status-card">
+      <div class="status-icon">🚆</div>
+      <div class="status-info">
+        <span class="status-label">Train</span>
+        <span class="status-value" id="train-status-text">Idle</span>
+      </div>
+    </div>
+    <div class="status-card" id="gate-status-card">
+      <div class="status-icon">🚧</div>
+      <div class="status-info">
+        <span class="status-label">Gate</span>
+        <span class="status-value" id="gate-status-text">Open</span>
+      </div>
+    </div>
+    <div class="status-card" id="delay-status-card">
+      <div class="status-icon">⏱️</div>
+      <div class="status-info">
+        <span class="status-label">Delay</span>
+        <span class="status-value" id="delay-status-text">0 min</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ MAIN GRID ═══ -->
+  <main id="dashboard-grid">
+
+    <!-- Traffic Light Column -->
+    <section class="card traffic-card" id="traffic-section">
+      <h2 class="card-title">Traffic Signal</h2>
+      <div class="traffic-light-container">
+        <div class="traffic-housing">
+          <div class="light red" id="light-red"></div>
+          <div class="light yellow" id="light-yellow"></div>
+          <div class="light green active" id="light-green"></div>
+        </div>
+        <div class="traffic-label" id="traffic-label">GREEN — Safe to cross</div>
+      </div>
+    </section>
+
+    <!-- Train Info Column -->
+    <section class="card train-card" id="train-section">
+      <h2 class="card-title">Current Train</h2>
+      <div class="train-info-grid">
+        <div class="info-row">
+          <span class="info-key">Train No</span>
+          <span class="info-val" id="info-train-no">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Name</span>
+          <span class="info-val" id="info-train-name">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Status</span>
+          <span class="info-val" id="info-train-status">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Delay</span>
+          <span class="info-val" id="info-train-delay">0 min</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Last Update</span>
+          <span class="info-val" id="info-train-time">—</span>
+        </div>
+      </div>
+
+      <!-- Gate Visual -->
+      <div class="gate-visual">
+        <div class="gate-arm" id="gate-arm">
+          <div class="gate-stripe"></div>
+          <div class="gate-stripe"></div>
+          <div class="gate-stripe"></div>
+          <div class="gate-stripe"></div>
+        </div>
+        <div class="gate-post"></div>
+        <span class="gate-label" id="gate-label">GATE OPEN</span>
+      </div>
+    </section>
+
+    <!-- Manual Control Column -->
+    <section class="card control-card" id="control-section">
+      <h2 class="card-title">Manual Override</h2>
+
+      <div class="override-toggle-wrap">
+        <label class="toggle-label" for="override-toggle">Enable Override</label>
+        <label class="switch">
+          <input type="checkbox" id="override-toggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="control-group" id="gate-controls">
+        <h3>Gate Control</h3>
+        <div class="btn-row">
+          <button class="ctrl-btn btn-open" id="btn-gate-open" disabled>Open Gate</button>
+          <button class="ctrl-btn btn-close" id="btn-gate-close" disabled>Close Gate</button>
+        </div>
+      </div>
+
+      <div class="control-group" id="light-controls">
+        <h3>Traffic Light</h3>
+        <div class="btn-row">
+          <button class="ctrl-btn btn-red" id="btn-light-red" disabled>Red</button>
+          <button class="ctrl-btn btn-yellow" id="btn-light-yellow" disabled>Yellow</button>
+          <button class="ctrl-btn btn-green" id="btn-light-green" disabled>Green</button>
+        </div>
+      </div>
+
+      <div class="control-group" id="station-master-controls">
+        <h3>Station Master</h3>
+        <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem;">
+          <input type="text" id="announce-train-id" placeholder="Train No (e.g. 12282)" style="flex:1; padding: 0.4rem; border-radius: 4px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white;" disabled />
+        </div>
+        <div class="btn-row">
+          <button class="ctrl-btn btn-blue" id="btn-announce" style="background: var(--accent-blue); color: white;" disabled>🔊 Play Announcement</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══ TIMETABLE ═══ -->
+  <section class="card timetable-card" id="timetable-section">
+    <div class="timetable-header">
+      <h2 class="card-title">🕐 Today's Timetable</h2>
+      <span class="timetable-count" id="timetable-count">0 trains</span>
+    </div>
+    <div class="timetable-wrap">
+      <table class="timetable" id="timetable">
+        <thead>
+          <tr>
+            <th>Train No</th>
+            <th>Train Name</th>
+            <th>Arrival</th>
+            <th>Platform</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="timetable-body">
+          <tr><td colspan="5" style="text-align:center; opacity:0.5;">Waiting for data…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══ LIVE LOG ═══ -->
+  <section class="card log-card" id="log-section">
+    <div class="log-header">
+      <h2 class="card-title">Live Log</h2>
+      <button id="btn-clear-log" class="btn-clear">Clear</button>
+    </div>
+    <div class="log-feed" id="log-feed">
+      <div class="log-entry log-info">
+        <time>--:--:--</time>
+        <span>Waiting for Firebase connection…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Firebase SDK (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

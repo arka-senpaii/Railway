@@ -1,0 +1,51 @@
+Train No,Train Name,From,To,Arrival Time,Days of Operation
+1 2 1 5 2,Samarsata SF Express,Shalimar (SHM),Mumbai LTT (LTT),00:05,"Sat, Sun"
+1 2 9 5 0,Kavi Guru Express,Santragachi (SRC),Porbandar (PBR),00:05,Mon
+1 8 4 4 9,Baidyanathdham Express,Puri (PURI),Patna (PNBE),00:35,Tue
+1 5 6 3 9,Puri - Kamakhya Express,Puri (PURI),Kamakhya (KYQ),00:35,Wed
+1 8 4 1 9,Puri - Jaynagar Express,Puri (PURI),Jaynagar (JYG),00:35,Fri
+1 2 1 5 1,Samarsata SF Express,Mumbai LTT (LTT),Shalimar (SHM),02:00,"Fri, Sat"
+1 2 9 4 9,Kavi Guru Express,Porbandar (PBR),Santragachi (SRC),02:00,Sun
+1 2 8 1o 6,Nandan Kanan Express,Anand Vihar (ANVT),Puri (PURI),02:45,"Sun, Tue, Thu, Fri"
+1 2 2 8 2,Duronto Express,New Delhi (NDLS),Bhubaneswar (BBS),04:10,Fri
+6 8 0 7 6,Bhojudih - Adra MEMU,Bhojudih (BJE),Adra (ADRA),04:40,Daily
+6 8 0 8 1,Bankura - Adra MEMU,Bankura (BQA),Adra (ADRA),04:45,Daily
+6 8 1 2 2,Purulia - Howrah MEMU,Purulia (PRR),Howrah (HWH),04:48,"Sun, Mon, Tue, Wed, Thu, Fri"
+1 8 0 1 1,Howrah - Chakradharpur Exp,Howrah (HWH),Chakradharpur (CKP),05:20,Daily
+1 8 0 1 3,Howrah - Bokaro Steel City Exp,Howrah (HWH),Bokaro Stl City (BKSC),05:20,Daily
+1 3 4 1 7,Digha - Malda Town Exp,Digha (DGHA),Malda Town (MLDT),05:55,Fri
+1 2 8 2 8,Purulia - Howrah SF Exp,Purulia (PRR),Howrah (HWH),06:20,Daily
+6 8 0 6 2,Asansol - Adra MEMU,Asansol (ASN),Adra (ADRA),06:25,Daily
+6 8 0 8 3,Bishnupur - Adra MEMU,Bishnupur (VSU),Adra (ADRA),06:35,Daily
+2 2 3 3 0,Asansol - Haldia SF Exp,Asansol (ASN),Haldia (HLZ),06:40,"Mon, Tue, Wed, Thu, Fri, Sat"
+1 3 5 0 6,Asansol - Digha Express,Asansol (ASN),Digha (DGHA),06:40,Sun
+6 3 5 2 0,Bokaro - Barddhaman MEMU,Bokaro Stl City (BKSC),Barddhaman (BWN),07:20,Daily
+1 8 0 8 5,Kharagpur - Ranchi MEMU,Kharagpur (KGP),Ranchi (RNC),07:40,Daily
+1 3 3 0 1,Subarnarekha Express,Dhanbad (DHN),Tatanagar (TATA),08:05,Daily
+6 8 0 6 4,Asansol - Adra MEMU,Asansol (ASN),Adra (ADRA),08:05,Daily
+6 8 0 5 8,Purulia - Adra MEMU,Purulia (PRR),Adra (ADRA),08:10,Daily
+2 2 8 1 2,Rajdhani Express (via Adra),New Delhi (NDLS),Bhubaneswar (BBS),08:20,"Tue, Sat"
+6 8 0 8 7,Bishnupur - Dhanbad MEMU,Bishnupur (VSU),Dhanbad (DHN),08:25,Daily
+0 1 9 2 9,VGL Jhansi - Puri Special,VGL Jhansi (VGLJ),Puri (PURI),09:05,Sat
+1 8 1 1 6,Chakradharpur - Gomoh MEMU,Chakradharpur (CKP),Gomoh (GMO),09:30,Daily
+1 8 0 2 4,Gomoh - Kharagpur Exp,Gomoh (GMO),Kharagpur (KGP),09:30,Daily
+1 8 0 2 7,Kharagpur - Asansol MEMU,Kharagpur (KGP),Asansol (ASN),09:35,Daily
+6 8 0 5 5,Asansol - Tatanagar MEMU,Asansol (ASN),Tatanagar (TATA),09:35,Daily
+2 2 6 1 2,NJP - Chennai Central SF Exp,New Jalpaiguri (NJP),Chennai Central (MAS),09:50,Sat
+1 2 5 5 2,Kamakhya - SMVT Bengaluru AC,Kamakhya (KYQ),SMVT Bengaluru (SMVB),09:50,Thu
+1 8 6 2 8,Ranchi - Howrah Intercity,Ranchi (RNC),Howrah (HWH),10:10,"Sun, Mon, Tue"
+0 1 9 3 0,Puri - VGL Jhansi Special,Puri (PURI),VGL Jhansi (VGLJ),10:10,Sun
+1 2 8 8 3,Rupasi Bangla Express,Santragachi (SRC),Purulia (PRR),10:45,Daily
+2 2 6 0 5,Purulia - Villupuram SF Exp,Purulia (PRR),Villupuram (VM),10:45,"Mon, Fri"
+2 2 6 4 3,Ernakulam - Patna SF Exp,Ernakulam (ERS),Patna (PNBE),11:15,"Wed, Thu"
+6 8 0 6 6,Asansol - Adra MEMU,Asansol (ASN),Adra (ADRA),11:45,Daily
+6 8 0 5 6,Tatanagar - Asansol MEMU,Tatanagar (TATA),Asansol (ASN),11:50,Daily
+6 3 5 9 4,Asansol - Purulia MEMU,Asansol (ASN),Purulia (PRR),12:10,Daily
+1 2 8 8 5,Aranyak Express,Shalimar (SHM),Bhojudih (BJE),12:20,"Mon, Tue, Wed, Thu, Fri, Sat"
+1 8 0 3 5,Kharagpur - Hatia Express,Kharagpur (KGP),Hatia (HTE),12:50,Daily
+6 8 0 4 6,Asansol - Adra MEMU,Asansol (ASN),Adra (ADRA),13:30,Daily
+1 8 0 3 6,Hatia - Kharagpur Express,Hatia (HTE),Kharagpur (KGP),13:45,Daily
+2 2 6 1 1,Chennai Central - NJP SF Exp,Chennai Central (MAS),New Jalpaiguri (NJP),14:25,Thu
+6 8 0 8 9,Midnapore - Adra MEMU,Midnapore (MDN),Adra (ADRA),14:30,Daily
+1 2 2 8 1,Duronto Express,Bhubaneswar (BBS),New Delhi (NDLS),14:35,Wed
+1 2 8 8 6,Aranyak Express,Bhojudih (BJE),Shalimar (SHM),14:40,"Mon, Tue, Wed, Thu, Fri, Sat"

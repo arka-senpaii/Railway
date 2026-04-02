@@ -39,9 +39,18 @@ GATE_CLOSE_ANGLE = 90         # degrees — gate fully lowered
 
 IR_DEBOUNCE_TIME = 0.3        # debounce for IR sensor reads
 MAX_PASSING_TIMEOUT = 120.0   # fallback seconds clear if OUT sensor fails
-YELLOW_WARNING_DURATION = 2.0 # yellow light before switching to red
+YELLOW_WARNING_DURATION = 0.05 # yellow light before switching to red
 FIREBASE_SYNC_INTERVAL = 1.0  # how often to push status updates
-MANUAL_POLL_INTERVAL = 1.0    # how often to check manual override flag
+MANUAL_POLL_INTERVAL = 0.5    # how often to check manual override flag
+
+# ─── RPi 3B+ Optimisation (1 GB RAM / 32 GB SD) ─────────────────────────────
+
+MAX_TTS_CACHE_FILES = 50      # LRU eviction after this many cached TTS mp3s
+PRE_GEN_LOOKAHEAD = 3         # only pre-generate the next N upcoming trains
+TTS_MAX_WORKERS = 2           # parallel gTTS threads (keep low for 1 GB RAM)
+LOG_LEVEL = "WARNING"         # production log level (use INFO / DEBUG on desktop)
+MAIN_LOOP_SLEEP = 0.15        # main loop delay (seconds) — saves CPU cycles
+OFFLINE_QUEUE_MAX = 100       # max queued Firebase writes when offline
 
 # ─── Firebase ────────────────────────────────────────────────────────────────
 

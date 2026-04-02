@@ -113,35 +113,52 @@ DEPARTED:
 
 ## Announcement Generation Algorithm
 
+### 1. Scheduled Train Announcements
 ```
 ANNOUNCEMENT(train_id):
-├── Lookup train_id in adrajndet.csv
+├── Lookup train_id natively without fetching via API (using adrajndet.csv)
 │   └── Get: Train_No, Train_Name, Platform_No, Arrival_Time
-├── Extract skeleton parts from project.mp3 (7 fixed segments)
-├── Generate TTS parts:
+├── Extract skeleton parts from project.mp3 directly in memory (to save SD I/O)
+├── Generate TTS parts in parallel using ThreadPool (capped at 2 workers for RPi specs):
 │   ├── Part-2:  gTTS(EN) → "Train_No  Train_Name"
 │   ├── Part-4:  gTTS(EN) → Platform_No
 │   ├── Part-6:  gTTS(BN) → "Train_No  Train_Name"
 │   ├── Part-7:  gTTS(BN) → Platform_No
 │   ├── Part-10: gTTS(HI) → "Train_No  Train_Name"
 │   └── Part-12: gTTS(HI) → Platform_No
-├── Merge Parts 1-13 in sequence
-└── Export as Announcement_{Train_No}.mp3
+├── Merge Parts 1-13 in sequence instantly
+├── Export as Announcement_{Train_No}.wav
+└── Stream natively using hardware `ffplay` to aux output
+```
+
+### 2. Custom Station Master Announcements
+```
+CUSTOM_TEXT_ANNOUNCEMENT(text):
+├── Intercept `/custom_announcement` node change from Firebase (sent by Station Master UI)
+├── Read raw text string
+├── Generate gTTS audio in Hindi and English in parallel
+├── Append Warning chime (`late.mp3`)
+├── Export as Custom_Announcement.wav and stream securely to aux
+└── Delete locally generated .wav immediately to preserve storage
 ```
 
 ---
 
-## Manual Override Algorithm
+## Manual Override & Station Master Algorithm
 
 ```
-MANUAL_OVERRIDE:
-├── Poll Firebase /manual_override every 1 second
-├── If enabled=true:
-│   ├── Skip automatic state machine
-│   ├── Read gate command → open/close servo
-│   ├── Read traffic_light command → set LED
-│   └── Push status updates to Firebase
-└── If enabled=false → resume automatic mode
+MANUAL_OVERRIDE_AND_STATION_UI:
+├── Event-Driven: Set up real-time listener on Firebase database
+├── If /manual_mode enabled=true:
+│   ├── Suspend automatic sensor triggers and gate loop logic
+│   ├── Listen for commands on /gate_status
+│   └── Translate UI button clicks ("Open", "Close", "Red", "Green") into SERVO & LED pins
+├── If /timetable changes:
+│   └── Station Master UI inherently sorts all trains by Day, highlights "NEXT" approaching train natively.
+├── If /trigger_announcement triggers:
+│   └── Immediately invoke ANNOUNCEMENT(train_id) across internal threading
+└── If /custom_announcement triggers:
+    └── Play bespoke typed message natively over `ffplay`
 ```
 
 ---

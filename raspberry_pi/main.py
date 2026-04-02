@@ -15,13 +15,15 @@ import sys
 import time
 import signal
 import logging
+import argparse
 import threading
 from datetime import datetime, timezone
 
 from config import (
     TrainState, GateState, LightState,
     MAX_PASSING_TIMEOUT, YELLOW_WARNING_DURATION,
-    FIREBASE_SYNC_INTERVAL, IR_SENSOR_IN_PIN, IR_SENSOR_OUT_PIN
+    FIREBASE_SYNC_INTERVAL, IR_SENSOR_IN_PIN, IR_SENSOR_OUT_PIN,
+    LOG_LEVEL, MAIN_LOOP_SLEEP,
 )
 from sensors import IRSensor, RFIDReader
 from actuators import ServoGate, TrafficLight, Buzzer
@@ -31,8 +33,14 @@ from manual_mode import ManualModeController
 
 # ─── Logging setup ───────────────────────────────────────────────────────────
 
+# Parse CLI args early so we can set log level
+_parser = argparse.ArgumentParser(description="Smart Railway Controller")
+_parser.add_argument("--debug", action="store_true", help="Enable verbose INFO/DEBUG logging")
+_parser.add_argument("--simulate", action="store_true", help="Run in desktop simulation mode")
+_args = _parser.parse_args()
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG if _args.debug else getattr(logging, LOG_LEVEL, logging.WARNING),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -70,7 +78,9 @@ class RailwayController:
         self.schedule_db = TrainScheduleDB()
         self.announcer = AnnouncementEngine(self.firebase, self.schedule_db)
         self.manual_ctrl = ManualModeController(
-            self.firebase, self.gate, self.light, self.buzzer, self.announcer
+            self.firebase, self.gate, self.light, self.buzzer, self.announcer,
+            on_gate_close_callback=self._on_manual_gate_closed,
+            on_gate_open_callback=self._on_manual_gate_opened
         )
 
         # ── State ──
@@ -93,12 +103,15 @@ class RailwayController:
         self._set_idle_state()
         self.manual_ctrl.start()
 
-        # Push today's timetable to Firebase so the dashboard can show it
-        today_trains = self.schedule_db.get_todays_trains()
-        if today_trains:
-            self.firebase.push_timetable(today_trains)
-            logger.info(f"Pushed {len(today_trains)} trains to Firebase timetable.")
+        # Push the full timetable to Firebase so the dashboard can handle multi-day display natively
+        all_trains = self.schedule_db.get_all_trains()
+        if all_trains:
+            self.firebase.push_timetable(all_trains)
+            logger.info(f"Pushed {len(all_trains)} total master schedule trains to Firebase timetable.")
         self.firebase.update_current_train(None)
+
+        # Pre-generate all announcements in background so they're instant
+        self.announcer.pregenerate_todays_announcements()
 
         logger.info("System online. Entering main loop ...")
 
@@ -155,7 +168,29 @@ class RailwayController:
             elif self.state == TrainState.DEPARTED:
                 self._handle_departed()
 
-            time.sleep(0.1)  # small loop delay
+            time.sleep(MAIN_LOOP_SLEEP)
+
+    def _on_manual_gate_closed(self):
+        """Callback from ManualModeController when the gate is manually closed."""
+        def _task():
+            if self.current_train_id is None:
+                train_id = self._predict_current_train()
+                if train_id:
+                    self.current_train_id = train_id
+                    self.firebase.update_current_train(train_id)
+                    result = self.announcer.generate_and_play(train_id)
+                    logger.info(f"Manual Override Prediction Identified Train: {train_id} — Announcement: {result['message']}")
+                    if result.get('delay_minutes', 0) > 0:
+                        self.announcer.generate_late_announcement(
+                            result['train_data'], result['delay_minutes']
+                        )
+                        
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _on_manual_gate_opened(self):
+        """Callback from ManualModeController when the gate is manually opened."""
+        self.current_train_id = None
+        self.firebase.update_current_train(None)
 
     # ── State Handlers ───────────────────────────────────────────────────────
 
@@ -166,23 +201,61 @@ class RailwayController:
             self._last_detection_time = time.time()
             self._transition_to_approaching()
 
+    def _predict_current_train(self) -> str | None:
+        """Find the train in today's schedule whose scheduled arrival time is closest to now."""
+        today_trains = self.schedule_db.get_todays_trains()
+        if not today_trains:
+            return None
+
+        now = datetime.now()
+        now_minutes = now.hour * 60 + now.minute
+        
+        best_train_id = None
+        min_diff = 999999
+
+        for train in today_trains:
+            arrival_str = train.get("Arrival_Time", "")
+            if not arrival_str or arrival_str in ("--", "N/A"):
+                continue
+
+            # Parse HH:MM from arrival_str
+            try:
+                parts = arrival_str.split(":")
+                hh = int(parts[0])
+                mm = int(parts[1])
+                arr_minutes = hh * 60 + mm
+                diff = abs(arr_minutes - now_minutes)
+                
+                # Account for midnight wrap-around seamlessly
+                if diff > 12 * 60:
+                    diff = 24 * 60 - diff
+                    
+                if diff < min_diff:
+                    min_diff = diff
+                    best_train_id = train["Train_No"]
+            except Exception:
+                pass
+
+        return best_train_id
+
     def _handle_approaching(self):
         """APPROACHING: Warning phase — yellow light, then red + gate close."""
         # If IN IR still detects, train is moving to PASSING
         if self.ir_sensor_in.is_obstacle_detected():
             self._last_detection_time = time.time()
 
-        # Try to read RFID for identification
-        uid, train_id = self.rfid_reader.read_card()
-        if train_id and self.current_train_id is None:
-            self.current_train_id = train_id
-            self.firebase.update_current_train(train_id)
-            result = self.announcer.generate_and_play(train_id)
-            logger.info(f"Announcement: {result['message']}")
-            if result.get('delay_minutes', 0) > 0:
-                self.announcer.generate_late_announcement(
-                    result['train_data'], result['delay_minutes']
-                )
+        # Software Time-Based Prediction (Replaces RFID hardware)
+        if self.current_train_id is None:
+            train_id = self._predict_current_train()
+            if train_id:
+                self.current_train_id = train_id
+                self.firebase.update_current_train(train_id)
+                result = self.announcer.generate_and_play(train_id)
+                logger.info(f"Automated Prediction Identified Train: {train_id} — Announcement: {result['message']}")
+                if result.get('delay_minutes', 0) > 0:
+                    self.announcer.generate_late_announcement(
+                        result['train_data'], result['delay_minutes']
+                    )
 
         # After yellow warning, switch to red and close gate
         elapsed = time.time() - self._last_detection_time

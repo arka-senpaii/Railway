@@ -56,7 +56,7 @@ class ServoGate:
         if ON_PI and self._pwm:
             duty = _angle_to_duty(angle)
             self._pwm.ChangeDutyCycle(duty)
-            time.sleep(0.5)                # wait for servo to reach position
+            time.sleep(0.15)                # wait for servo to reach position
             self._pwm.ChangeDutyCycle(0)    # stop jitter
         else:
             logger.info(f"[SIM] Servo → {angle}°")

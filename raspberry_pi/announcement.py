@@ -1,35 +1,31 @@
 """
-Smart Railway Automation System — Announcement Engine
-======================================================
-Uses real Adra Junction timetable data (adrajndet.csv) and the
-Indian Railways announcement style with:
-  - 13-part audio skeleton extracted from project.mp3
-  - TTS in English, Bengali, and Hindi via gTTS
-  - Delay/on-time logic based on scheduled arrival times
-  - Day-of-week filtering
+Smart Railway Automation System — Announcement Engine (Optimised for RPi 3B+)
+===============================================================================
+Generates Indian-Railways-style announcements in 3 languages using:
+  - 13-part audio skeleton from project.mp3
+  - TTS via gTTS (cached on disk with LRU eviction)
+  - ffplay for zero-overhead playback on Raspberry Pi
 
-Audio sequence:
-  Part‑1  : English intro chime   ("May I have your attention please…")
-  Part‑2  : [TTS‑EN] Train No + Name
-  Part‑3  : "…is arriving on…"
-  Part‑4  : [TTS‑EN] Platform No
-  Part‑5  : Bengali intro         ("Jatrira onugroho kore shunben…")
-  Part‑6  : [TTS‑BN] Train No + Name
-  Part‑7  : [TTS‑BN] Platform No
-  Part‑8  : "…platform e asche…"
-  Part‑9  : Hindi intro           ("Kripya dhyan de…")
-  Part‑10 : [TTS‑HI] Train No + Name
-  Part‑11 : "…platform kramank…"
-  Part‑12 : [TTS‑HI] Platform No
-  Part‑13 : "…par aa rahi hai" + closing chime
+RPi 3B+ optimisations:
+  • ThreadPoolExecutor capped at TTS_MAX_WORKERS (2)
+  • TTS disk cache limited to MAX_TTS_CACHE_FILES (LRU eviction)
+  • Pre-generation limited to next PRE_GEN_LOOKAHEAD trains
+  • gc.collect() after heavy audio operations
+  • Auto-cleanup of late-announcement WAV files after playback
 """
 
 import os
+import gc
 import logging
 import threading
+import hashlib
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import csv
 
-import pandas as pd
+from config import (
+    MAX_TTS_CACHE_FILES, PRE_GEN_LOOKAHEAD, TTS_MAX_WORKERS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,58 +53,95 @@ except ImportError:
 import platform
 import subprocess
 
-# Try multiple playback methods depending on OS
+# ─── Playback (optimised for RPi) ────────────────────────────────────────────
 PLAY_FUNCTION = None
 
 if platform.system() == "Linux":
-    # On Raspberry Pi, ffplay (part of ffmpeg) is the most reliable way 
-    # to output audio to the AV jack/HDMI without GUI overhead like playsound.
     def _play_linux(filepath):
+        """Play audio via ffplay — lightest method for RPi 3B+ audio output."""
         try:
-            subprocess.run(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", filepath], check=True)
+            subprocess.run(
+                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", filepath],
+                check=True,
+            )
+        except FileNotFoundError:
+            logger.error("ffplay not found — install ffmpeg: sudo apt install ffmpeg")
         except Exception as e:
-            logger.warning(f"Audio playback failed on Pi (is ffmpeg installed?): {e}")
+            logger.warning(f"Audio playback failed: {e}")
     PLAY_FUNCTION = _play_linux
 else:
-    # Windows / Mac fallback for local testing
     def _play_other(filepath):
         try:
-            import os
-            logger.info(f"Opening audio file with default OS player: {filepath}")
             if hasattr(os, 'startfile'):
-                os.startfile(filepath)  # Windows
+                os.startfile(filepath)
             else:
-                subprocess.run(['open', filepath])  # Mac
+                subprocess.run(['open', filepath])
         except Exception as e:
-            logger.warning(f"Audio playback failed on fallback OS: {e}")
+            logger.warning(f"Audio playback failed: {e}")
     PLAY_FUNCTION = _play_other
 
 
 # ─── Audio skeleton timestamps from project.mp3 ─────────────────────────────
 SKELETON_PARTS = [
-    # (start_ms, end_ms, part_number)
     (0,     5221,  1),   # English intro chime
     (11213, 13438, 3),   # "is arriving on"
     (14437, 17342, 5),   # Bengali intro
     (23925, 25559, 8),   # "platform e asche"
-    (25889, 28247, 9),   # Hindi intro "Kripya dhyan de"
+    (25889, 28247, 9),   # Hindi intro
     (34584, 36206, 11),  # "platform kramank"
     (36885, 38440, 13),  # "par aa rahi hai" + closing
 ]
 
-# ─── Data paths (relative to script directory) ───────────────────────────────
+# ─── Data paths ──────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TIMETABLE_CSV = os.path.join(SCRIPT_DIR, "adrajndet.csv")
 SCHEDULE_CSV = os.path.join(SCRIPT_DIR, "adrajn.csv")
 ANNOUNCEMENT_MP3 = os.path.join(SCRIPT_DIR, "project.mp3")
 LATE_MP3 = os.path.join(SCRIPT_DIR, "late.mp3")
+TTS_CACHE_DIR = os.path.join(SCRIPT_DIR, ".tts_cache")
 
+
+# ─── LRU-evicting TTS cache ─────────────────────────────────────────────────
+
+def _enforce_cache_limit():
+    """Delete oldest cached TTS files when cache exceeds MAX_TTS_CACHE_FILES."""
+    if not os.path.isdir(TTS_CACHE_DIR):
+        return
+    files = []
+    for f in os.listdir(TTS_CACHE_DIR):
+        fp = os.path.join(TTS_CACHE_DIR, f)
+        if os.path.isfile(fp) and f.endswith(".mp3"):
+            files.append((os.path.getmtime(fp), fp))
+    if len(files) <= MAX_TTS_CACHE_FILES:
+        return
+    files.sort()  # oldest first
+    for _, fp in files[: len(files) - MAX_TTS_CACHE_FILES]:
+        try:
+            os.remove(fp)
+        except OSError:
+            pass
+
+
+def _cached_tts(text: str, lang: str, tld: str = 'co.in') -> str:
+    """Generate TTS audio via gTTS, caching on disk by content hash."""
+    os.makedirs(TTS_CACHE_DIR, exist_ok=True)
+    cache_key = hashlib.md5(f"{text}|{lang}|{tld}".encode()).hexdigest()
+    cache_path = os.path.join(TTS_CACHE_DIR, f"{cache_key}.mp3")
+    if os.path.exists(cache_path):
+        # Touch the file so LRU eviction treats it as recently used
+        os.utime(cache_path)
+        return cache_path
+    gTTS(text=text, lang=lang, tld=tld, slow=False).save(cache_path)
+    _enforce_cache_limit()
+    return cache_path
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  Train Schedule DB
+# ═════════════════════════════════════════════════════════════════════════════
 
 class TrainScheduleDB:
-    """
-    Loads the Adra Junction timetable CSVs and provides
-    lookup by train number, with day-of-week filtering.
-    """
+    """Loads Adra Junction timetable CSVs and provides lookup by train number."""
 
     def __init__(self):
         self.detailed_df = None
@@ -116,127 +149,144 @@ class TrainScheduleDB:
         self._load()
 
     def _load(self):
-        """Load CSV files into pandas DataFrames."""
         try:
             if os.path.exists(TIMETABLE_CSV):
-                self.detailed_df = pd.read_csv(TIMETABLE_CSV, dtype={"Train No": str})
+                with open(TIMETABLE_CSV, mode="r", encoding="utf-8") as f:
+                    self.detailed_df = list(csv.DictReader(f))
                 logger.info(f"Loaded {len(self.detailed_df)} rows from adrajndet.csv")
-            else:
-                logger.warning(f"Timetable file not found: {TIMETABLE_CSV}")
 
             if os.path.exists(SCHEDULE_CSV):
-                self.schedule_df = pd.read_csv(SCHEDULE_CSV, dtype={"Train No": str})
+                with open(SCHEDULE_CSV, mode="r", encoding="utf-8") as f:
+                    self.schedule_df = list(csv.DictReader(f))
                 logger.info(f"Loaded {len(self.schedule_df)} rows from adrajn.csv")
-            else:
-                logger.warning(f"Schedule file not found: {SCHEDULE_CSV}")
         except Exception as exc:
             logger.error(f"Failed to load train data: {exc}")
 
     def lookup(self, train_no: str) -> dict | None:
-        """
-        Look up a train by number. Returns a dict with schedule details
-        or None if not found.
-        Handles train numbers with spaces (e.g. '2 2 8 1 2' matches '22812').
-        """
+        """Look up a train by number (handles spaced format like '2 2 8 1 2')."""
         train_no = str(train_no).replace(" ", "").strip()
 
-        # Try detailed timetable first (has platform, line type, departure)
         if self.detailed_df is not None:
-            matches = self.detailed_df[
-                self.detailed_df["Train No"].astype(str).str.replace(" ", "", regex=False).str.strip() == train_no
-            ]
-            if not matches.empty:
-                row = matches.iloc[0]
-                return {
-                    "Train_No": str(row.get("Train No", train_no)).replace(" ", ""),
-                    "Train_Name": str(row.get("Train Name", "Unknown")),
-                    "From": str(row.get("From", "N/A")),
-                    "To": str(row.get("To", "N/A")),
-                    "Arrival_Time": str(row.get("Arrival Time", "--")),
-                    "Departure_Time": str(row.get("Departure Time", "--")),
-                    "Platform_No": str(row.get("Platform", "1")),
-                    "Line_Type": str(row.get("Line Type", "Main Line")),
-                    "Days": str(row.get("Days of Operation", "Daily")),
-                }
+            for row in self.detailed_df:
+                raw = str(row.get("Train No", "")).replace(" ", "").strip()
+                if raw == train_no:
+                    return {
+                        "Train_No": raw,
+                        "Train_Name": str(row.get("Train Name", "Unknown")),
+                        "From": str(row.get("From", "N/A")),
+                        "To": str(row.get("To", "N/A")),
+                        "Arrival_Time": str(row.get("Arrival Time", "--")),
+                        "Departure_Time": str(row.get("Departure Time", "--")),
+                        "Platform_No": str(row.get("Platform", "1")),
+                        "Line_Type": str(row.get("Line Type", "Main Line")),
+                        "Days": str(row.get("Days of Operation", "Daily")),
+                    }
 
-        # Fallback to basic schedule
         if self.schedule_df is not None:
-            matches = self.schedule_df[
-                self.schedule_df["Train No"].astype(str).str.replace(" ", "", regex=False).str.strip() == train_no
-            ]
-            if not matches.empty:
-                row = matches.iloc[0]
-                return {
-                    "Train_No": str(row.get("Train No", train_no)).replace(" ", ""),
-                    "Train_Name": str(row.get("Train Name", "Unknown")),
-                    "From": str(row.get("From", "N/A")),
-                    "To": str(row.get("To", "N/A")),
-                    "Arrival_Time": str(row.get("Arrival Time", "--")),
-                    "Departure_Time": "--",
-                    "Platform_No": "1",
-                    "Line_Type": "Main Line",
-                    "Days": str(row.get("Days of Operation", "Daily")),
-                }
-
+            for row in self.schedule_df:
+                raw = str(row.get("Train No", "")).replace(" ", "").strip()
+                if raw == train_no:
+                    return {
+                        "Train_No": raw,
+                        "Train_Name": str(row.get("Train Name", "Unknown")),
+                        "From": str(row.get("From", "N/A")),
+                        "To": str(row.get("To", "N/A")),
+                        "Arrival_Time": str(row.get("Arrival Time", "--")),
+                        "Departure_Time": "--",
+                        "Platform_No": "1",
+                        "Line_Type": "Main Line",
+                        "Days": str(row.get("Days of Operation", "Daily")),
+                    }
         return None
 
     def runs_today(self, days_str: str) -> bool:
-        """Check if a train runs on the current day."""
         if not isinstance(days_str, str):
             return False
         if "Daily" in days_str:
             return True
-        today_short = datetime.now().strftime("%a")  # "Mon", "Tue", …
+        today_short = datetime.now().strftime("%a")
         return today_short in days_str
+
+    def get_all_trains(self) -> list[dict]:
+        """Return ALL trains from the master database with explicit Days of Operation mapped."""
+        results = []
+        df_list = self.detailed_df if self.detailed_df is not None else self.schedule_df
+        if df_list is None:
+            return results
+
+        for row in df_list:
+            results.append({
+                "Train_No": str(row.get("Train No", "")).replace(" ", "").strip(),
+                "Train_Name": str(row.get("Train Name", "")),
+                "From": str(row.get("From", "N/A")),
+                "To": str(row.get("To", "N/A")),
+                "Arrival_Time": str(row.get("Arrival Time", "--")),
+                "Platform_No": str(row.get("Platform", row.get("Platform_No", "1"))),
+                "Days": str(row.get("Days of Operation", "Daily")),
+            })
+        return results
 
     def get_todays_trains(self) -> list[dict]:
         """Return all trains that run today, sorted by arrival time."""
         results = []
-        df = self.detailed_df if self.detailed_df is not None else self.schedule_df
-        if df is None:
-            return results
-
-        for _, row in df.iterrows():
-            days = str(row.get("Days of Operation", ""))
-            if self.runs_today(days):
-                results.append({
-                    "Train_No": str(row.get("Train No", "")).replace(" ", ""),
-                    "Train_Name": str(row.get("Train Name", "")),
-                    "Arrival_Time": str(row.get("Arrival Time", "--")),
-                    "Platform_No": str(row.get("Platform", row.get("Platform_No", "1"))),
-                })
-
+        all_trains = self.get_all_trains()
+        for t in all_trains:
+            if self.runs_today(t["Days"]):
+                results.append(t)
         return results
 
+    def get_upcoming_trains(self, limit: int = PRE_GEN_LOOKAHEAD) -> list[dict]:
+        """Return the next `limit` trains arriving after now (for smart pre-gen)."""
+        all_today = self.get_todays_trains()
+        now = datetime.now()
+        now_minutes = now.hour * 60 + now.minute
+
+        upcoming = []
+        for t in all_today:
+            arr = t.get("Arrival_Time", "--")
+            if arr in ("--", "N/A", ""):
+                continue
+            try:
+                parts = arr.split(":")
+                arr_minutes = int(parts[0]) * 60 + int(parts[1])
+                if arr_minutes >= now_minutes - 10:  # include trains arriving ±10 min
+                    upcoming.append((arr_minutes, t))
+            except (ValueError, IndexError):
+                pass
+
+        upcoming.sort(key=lambda x: x[0])
+        return [t for _, t in upcoming[:limit]]
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  Announcement Engine (Optimised for RPi 3B+)
+# ═════════════════════════════════════════════════════════════════════════════
 
 class AnnouncementEngine:
     """
-    Generates Indian-Railways-style announcements in 3 languages
-    (English → Bengali → Hindi) using audio skeletons from project.mp3
-    and gTTS for dynamic parts (train number, name, platform).
+    Generates Indian-Railways-style announcements in 3 languages.
+
+    RPi 3B+ optimisations:
+      • Skeleton kept in memory (loaded once)
+      • TTS cached on disk with LRU eviction
+      • ThreadPoolExecutor limited to TTS_MAX_WORKERS (2)
+      • Pre-generation limited to upcoming trains only
+      • gc.collect() after heavy audio operations
+      • Late-announcement WAV auto-deleted after playback
     """
 
     def __init__(self, firebase_client=None, schedule_db: TrainScheduleDB = None):
         self.fb = firebase_client
         self.schedule_db = schedule_db or TrainScheduleDB()
-        self._skeleton_generated = False
+        self._skeleton_segments = {}
+        self._skeleton_ready = False
         self._lock = threading.Lock()
+        self._pregenerated = {}
 
     # ── Public API ───────────────────────────────────────────────────────────
 
     def generate_and_play(self, train_id: str) -> dict:
-        """
-        Full pipeline: look up train → compute delay → generate audio → play.
-
-        Parameters
-        ----------
-        train_id : str
-            The scanned train number (e.g. "12282").
-
-        Returns
-        -------
-        dict  with keys: train_data, delay_minutes, status, message, audio_file
-        """
+        """Full pipeline: look up → delay → generate audio → play on Pi."""
         train_data = self.schedule_db.lookup(train_id)
 
         if train_data is None:
@@ -245,25 +295,26 @@ class AnnouncementEngine:
             return {"train_data": None, "delay_minutes": 0,
                     "status": "unknown", "message": msg, "audio_file": None}
 
-        # Compute delay
         delay_info = self._compute_delay(train_data)
 
-        # Generate announcement audio
-        audio_file = self._generate_audio(train_data)
-        
-        # Fallback to default file if generation failed
+        train_no = str(train_id).replace(" ", "").strip()
+        audio_file = self._pregenerated.get(train_no)
+        if audio_file and os.path.exists(audio_file):
+            logger.info(f"Using pre-generated announcement for train {train_no}")
+        else:
+            audio_file = self._generate_audio(train_data)
+
         if not audio_file or not os.path.exists(audio_file):
-            logger.warning("Audio generation failed or unavailable. Falling back to default project.mp3.")
+            logger.warning("Audio generation failed. Falling back to project.mp3.")
             if os.path.exists(ANNOUNCEMENT_MP3):
                 audio_file = ANNOUNCEMENT_MP3
 
-        # Play in background
+        # Play on Pi (via ffplay in background thread)
         if audio_file and PLAY_FUNCTION:
             threading.Thread(
                 target=PLAY_FUNCTION, args=(audio_file,), daemon=True
             ).start()
 
-        # Update Firebase gate status (train approaching → gate closing)
         if self.fb:
             self.fb.update_gate_status("CLOSED")
 
@@ -273,26 +324,47 @@ class AnnouncementEngine:
             "audio_file": audio_file,
         }
 
+    def pregenerate_todays_announcements(self):
+        """
+        Pre-generate announcements for the NEXT few upcoming trains only
+        (not all) to save RAM and startup time on RPi 3B+.
+        """
+        def _worker():
+            upcoming = self.schedule_db.get_upcoming_trains(PRE_GEN_LOOKAHEAD)
+            if not upcoming:
+                logger.info("No upcoming trains — skipping pre-generation.")
+                return
+            logger.info(f"Pre-generating {len(upcoming)} upcoming announcements ...")
+            for i, train in enumerate(upcoming, 1):
+                train_no = train["Train_No"]
+                if train_no in self._pregenerated:
+                    continue
+                full_data = self.schedule_db.lookup(train_no)
+                if full_data:
+                    path = self._generate_audio(full_data)
+                    if path:
+                        self._pregenerated[train_no] = path
+                        logger.info(f"  [{i}/{len(upcoming)}] Pre-generated: {train_no}")
+            gc.collect()
+            logger.info(f"Pre-generation complete — {len(self._pregenerated)} ready.")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def generate_late_announcement(self, train_data: dict, delay_minutes: int) -> str | None:
         """
-        Generate a separate delay announcement (chime → Hindi → English → Bengali)
-        using late.mp3 as the chime source, matching the pattern from
-        announcement_logic.py in the Train folder.
-
-        Returns the path to the generated WAV file, or None on failure.
+        Generate delay announcement. Auto-plays and auto-deletes the WAV
+        after playback to save disk space on 32 GB SD card.
         """
         if not TTS_AVAILABLE or not PYDUB_AVAILABLE:
-            logger.warning("TTS or pydub not available — skipping late announcement.")
             return None
-
         if delay_minutes <= 0:
             return None
 
         try:
-            # Load chime from late.mp3
             if os.path.exists(LATE_MP3):
                 audio = AudioSegment.from_mp3(LATE_MP3)
-                chime = audio[:1000]  # first 1 second
+                chime = audio[:1000]
+                del audio  # free immediately
             else:
                 chime = AudioSegment.silent(duration=1000)
 
@@ -301,65 +373,124 @@ class AnnouncementEngine:
             train_name = train_data["Train_Name"]
             arrival = train_data.get("Arrival_Time", "N/A")
 
-            # Hindi
             text_hi = (
                 f"Yatri kripya dhyan de. Gadi sankhya {train_no_spoken}, {train_name}, "
                 f"apne nirdharit samay {arrival} se {delay_minutes} minute "
                 f"deri se chal rahi hai. Asuvidha ke liye hume khed hai."
             )
-            hi_path = os.path.join(SCRIPT_DIR, "temp_hi.mp3")
-            gTTS(text=text_hi, lang='hi', tld='co.in', slow=False).save(hi_path)
-            audio_hi = AudioSegment.from_mp3(hi_path)
-
-            # English
             text_en = (
                 f"May I have your attention please. Train number {train_no_spoken}, "
                 f"{train_name}, scheduled to arrive at {arrival}, is running "
                 f"late by {delay_minutes} minutes. We regret the inconvenience."
             )
-            en_path = os.path.join(SCRIPT_DIR, "temp_en.mp3")
-            gTTS(text=text_en, lang='en', tld='co.in', slow=False).save(en_path)
-            audio_en = AudioSegment.from_mp3(en_path)
-
-            # Bengali
             text_bn = (
                 f"Jatrira onugroho kore shunben. Gari sankhya {train_no_spoken}, "
                 f"{train_name}, nirdharito somoy {arrival} er {delay_minutes} "
                 f"minute deri te cholche. Apnader oshubidhar jonno amra "
                 f"antorik bhabe dukkhito."
             )
-            bn_path = os.path.join(SCRIPT_DIR, "temp_bn.mp3")
-            gTTS(text=text_bn, lang='bn', tld='co.in', slow=False).save(bn_path)
-            audio_bn = AudioSegment.from_mp3(bn_path)
 
-            # Combine: Chime → Hindi → Chime → English → Chime → Bengali
+            # Generate TTS clips in parallel (capped at TTS_MAX_WORKERS)
+            tts_jobs = [("hi", text_hi), ("en", text_en), ("bn", text_bn)]
+            tts_paths = {}
+            with ThreadPoolExecutor(max_workers=min(TTS_MAX_WORKERS, 3)) as pool:
+                futures = {pool.submit(_cached_tts, txt, lang): lang
+                           for lang, txt in tts_jobs}
+                for fut in as_completed(futures):
+                    tts_paths[futures[fut]] = fut.result()
+
+            audio_hi = AudioSegment.from_mp3(tts_paths["hi"])
+            audio_en = AudioSegment.from_mp3(tts_paths["en"])
+            audio_bn = AudioSegment.from_mp3(tts_paths["bn"])
+
             final = chime + audio_hi + chime + audio_en + chime + audio_bn
 
             output_path = os.path.join(SCRIPT_DIR, f"Late_Announcement_{train_no}.wav")
             final.export(output_path, format="wav")
 
-            # Cleanup temp files
-            for f in [hi_path, en_path, bn_path]:
-                if os.path.exists(f):
-                    os.remove(f)
+            # Free heavy objects and collect garbage
+            del final, audio_hi, audio_en, audio_bn, chime
+            gc.collect()
 
             logger.info(f"Late announcement generated: {output_path}")
+
+            # Play and then auto-delete to save disk space
+            if PLAY_FUNCTION:
+                def _play_and_cleanup(path):
+                    PLAY_FUNCTION(path)
+                    try:
+                        os.remove(path)
+                        logger.debug(f"Cleaned up late announcement: {path}")
+                    except OSError:
+                        pass
+                threading.Thread(
+                    target=_play_and_cleanup, args=(output_path,), daemon=True
+                ).start()
+
             return output_path
 
         except Exception as exc:
             logger.error(f"Late announcement generation failed: {exc}")
             return None
 
+    def announce_custom_text(self, text: str) -> str | None:
+        """
+        Generate and play a custom text string dynamically using Hindi/English TTS.
+        """
+        if not text or not TTS_AVAILABLE or not PYDUB_AVAILABLE:
+            return None
+        
+        try:
+            # We'll generate English and Hindi in parallel
+            tts_jobs = [("hi", text), ("en", text)]
+            tts_paths = {}
+            with ThreadPoolExecutor(max_workers=TTS_MAX_WORKERS) as pool:
+                futures = {pool.submit(_cached_tts, txt, lang): lang for lang, txt in tts_jobs}
+                for fut in as_completed(futures):
+                    tts_paths[futures[fut]] = fut.result()
+            
+            # Load chime if available
+            if os.path.exists(LATE_MP3):
+                audio = AudioSegment.from_mp3(LATE_MP3)
+                chime = audio[:1000]
+                del audio
+            else:
+                chime = AudioSegment.silent(duration=1000)
+            
+            audio_hi = AudioSegment.from_mp3(tts_paths["hi"])
+            audio_en = AudioSegment.from_mp3(tts_paths["en"])
+            
+            final = chime + audio_hi + chime + audio_en
+            output_path = os.path.join(SCRIPT_DIR, "Custom_Announcement.wav")
+            final.export(output_path, format="wav")
+            
+            del final, audio_hi, audio_en, chime
+            gc.collect()
+            logger.info("Custom announcement generated successfully.")
+            
+            if PLAY_FUNCTION:
+                def _play_and_cleanup(path):
+                    PLAY_FUNCTION(path)
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                threading.Thread(target=_play_and_cleanup, args=(output_path,), daemon=True).start()
+                
+            return output_path
+            
+        except Exception as exc:
+            logger.error(f"Custom announcement generation failed: {exc}")
+            return None
+
     # ── Internal ─────────────────────────────────────────────────────────────
 
     def _compute_delay(self, train_data: dict) -> dict:
-        """Compare scheduled arrival with current time to determine delay."""
         arrival_str = train_data.get("Arrival_Time", "--")
         now = datetime.now()
         actual_str = now.strftime("%H:%M")
 
         if arrival_str in ("--", "N/A", ""):
-            # Origin station — no arrival, only departure
             return {
                 "delay_minutes": 0,
                 "status": "originating",
@@ -415,8 +546,8 @@ class AnnouncementEngine:
         return {"delay_minutes": delay, "status": status, "message": msg}
 
     def _ensure_skeleton(self):
-        """Extract static audio parts from project.mp3 if not done yet."""
-        if self._skeleton_generated:
+        """Load skeleton audio parts into memory once."""
+        if self._skeleton_ready:
             return True
 
         if not PYDUB_AVAILABLE or not os.path.exists(ANNOUNCEMENT_MP3):
@@ -424,18 +555,16 @@ class AnnouncementEngine:
             return False
 
         with self._lock:
-            if self._skeleton_generated:
+            if self._skeleton_ready:
                 return True
-
             try:
                 audio = AudioSegment.from_mp3(ANNOUNCEMENT_MP3)
                 for start, end, part_num in SKELETON_PARTS:
-                    part_path = os.path.join(SCRIPT_DIR, f"Part-{part_num}.mp3")
-                    segment = audio[start:end]
-                    segment.export(part_path, format="mp3")
-
-                self._skeleton_generated = True
-                logger.info("Audio skeleton generated from project.mp3")
+                    self._skeleton_segments[part_num] = audio[start:end]
+                del audio  # free the full file — keep only slices
+                gc.collect()
+                self._skeleton_ready = True
+                logger.info("Audio skeleton loaded into memory from project.mp3")
                 return True
             except Exception as exc:
                 logger.error(f"Skeleton generation failed: {exc}")
@@ -443,11 +572,16 @@ class AnnouncementEngine:
 
     def _generate_audio(self, train_data: dict) -> str | None:
         """
-        Generate the full 13-part announcement audio for a train.
-        Returns the output file path or None.
+        Generate the full 13-part announcement audio.
+
+        Optimised for RPi 3B+:
+          - TTS_MAX_WORKERS threads (2) instead of 6
+          - Cached TTS results (no redundant gTTS calls)
+          - Exported as WAV (no MP3 re-encode overhead)
+          - gc.collect() after export
         """
         if not TTS_AVAILABLE or not PYDUB_AVAILABLE:
-            logger.info("[SIM] Would generate audio for: "
+            logger.info(f"[SIM] Would generate audio for: "
                         f"{train_data['Train_No']} {train_data['Train_Name']}")
             return None
 
@@ -459,45 +593,45 @@ class AnnouncementEngine:
         train_name = train_data["Train_Name"]
         platform = train_data.get("Platform_No", "1")
 
+        output = os.path.join(SCRIPT_DIR, f"Announcement_{train_no}.wav")
+        if os.path.exists(output):
+            logger.info(f"Announcement already exists on disk: {output}")
+            return output
+
         try:
-            # Part‑2: English TTS — Train No + Name
-            p2 = os.path.join(SCRIPT_DIR, "Part-2.mp3")
-            gTTS(text=f"{train_no_spoken}  {train_name}", lang='en', slow=False).save(p2)
+            # Generate TTS clips in parallel (capped workers for RPi)
+            tts_jobs = {
+                2:  (f"{train_no_spoken}  {train_name}", 'en'),
+                4:  (str(platform), 'en'),
+                6:  (f"{train_no_spoken}  {train_name}", 'bn'),
+                7:  (str(platform), 'bn'),
+                10: (f"{train_no_spoken}  {train_name}", 'hi'),
+                12: (str(platform), 'hi'),
+            }
 
-            # Part‑4: English TTS — Platform No
-            p4 = os.path.join(SCRIPT_DIR, "Part-4.mp3")
-            gTTS(text=str(platform), lang='en', slow=False).save(p4)
+            tts_segments = {}
+            with ThreadPoolExecutor(max_workers=TTS_MAX_WORKERS) as pool:
+                futures = {
+                    pool.submit(_cached_tts, text, lang): part_num
+                    for part_num, (text, lang) in tts_jobs.items()
+                }
+                for fut in as_completed(futures):
+                    part_num = futures[fut]
+                    tts_segments[part_num] = AudioSegment.from_mp3(fut.result())
 
-            # Part‑6: Bengali TTS — Train No + Name
-            p6 = os.path.join(SCRIPT_DIR, "Part-6.mp3")
-            gTTS(text=f"{train_no_spoken}  {train_name}", lang='bn', slow=False).save(p6)
-
-            # Part‑7: Bengali TTS — Platform No
-            p7 = os.path.join(SCRIPT_DIR, "Part-7.mp3")
-            gTTS(text=str(platform), lang='bn', slow=False).save(p7)
-
-            # Part‑10: Hindi TTS — Train No + Name
-            p10 = os.path.join(SCRIPT_DIR, "Part-10.mp3")
-            gTTS(text=f"{train_no_spoken}  {train_name}", lang='hi', slow=False).save(p10)
-
-            # Part‑12: Hindi TTS — Platform No
-            p12 = os.path.join(SCRIPT_DIR, "Part-12.mp3")
-            gTTS(text=str(platform), lang='hi', slow=False).save(p12)
-
-            # Merge all 13 parts in order
+            # Merge all 13 parts in order from memory
             combined = AudioSegment.empty()
             for i in range(1, 14):
-                part_path = os.path.join(SCRIPT_DIR, f"Part-{i}.mp3")
-                if os.path.exists(part_path):
-                    combined += AudioSegment.from_mp3(part_path)
+                if i in self._skeleton_segments:
+                    combined += self._skeleton_segments[i]
+                elif i in tts_segments:
+                    combined += tts_segments[i]
 
-            output = os.path.join(SCRIPT_DIR, f"Announcement_{train_no}.mp3")
-            combined.export(output, format="mp3")
+            combined.export(output, format="wav")
 
-            # Clean up dynamic TTS parts
-            for p in [p2, p4, p6, p7, p10, p12]:
-                if os.path.exists(p):
-                    os.remove(p)
+            # Free heavy objects
+            del combined, tts_segments
+            gc.collect()
 
             logger.info(f"Announcement audio generated: {output}")
             return output

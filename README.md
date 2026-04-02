@@ -13,11 +13,10 @@ An enterprise-grade IoT railway crossing automation system powered by a Raspberr
 
 * **Real-time Live Dashboard:** A modern, glassmorphism web interface reflecting real-time physical states of the station, gate, traffic lights, and incoming trains.
 * **Intelligent Train Tracking:** Uses two KY-032 IR sensors (In/Out) for physical block detection and MFRC522 RFID components for train identification.
-* **Live Station Timetable:** A dynamic web table syncs securely with the Raspberry Pi to display scheduled arrivals for the current day, automatically highlighting approaching trains.
-* **Multilingual Audio Announcements:** Text-to-Speech (TTS) engine dynamically structures spoken sequences in English, Bengali, and Hindi. Intelligently spaces train numbers (e.g., `1 2 2 8 2`) for precise spelling playback. Includes safe fallback to standard station audio (`project.mp3`) if local generation encounters issues.
-* **Station Master Manual Override:** Remotely trigger passenger announcements or override gate & traffic light behaviors securely from the web dashboard.
-* **Delay Detection:** Computes scheduling differences logic against physical arrival and auto-generates separate "Late Train" chimes and announcements.
-* **Offline Resilience:** Implements an asynchronous queueing system so the Raspberry Pi retains actions during internet outages and flushes them to Firebase once online.
+* **Master Timetable & Station Master UI:** A dynamic web table syncs securely with the Raspberry Pi. Includes a dedicated **Station Master Operations Panel** boasting Day-based filtering, physical gate overrides, visual indicators for upcoming/departed trains, and quick announcement triggers.
+* **Multilingual Audio Announcements:** Text-to-Speech (TTS) engine dynamically structures spoken sequences in English, Bengali, and Hindi. Intelligently spaces train numbers (e.g., `1 2 2 8 2`) for precise spelling playback via highly optimized `ffplay` audio rendering on Pi.
+* **Custom Text Announcements:** Using the Station Master UI, station operators can dynamically type custom alert text which gets synthesized out-loud across the hardware terminals via `gTTS` instantly.
+* **Offline & Hardware Optimization:** Implements an asynchronous queueing system so the Raspberry Pi retains actions during internet outages. Includes RAM footprint limitations, offline caching (Max 50 files LRU), and smart-CPU timing loops configured explicitly for a 1GB RAM Pi 3B+.
 
 ---
 
@@ -30,9 +29,9 @@ The project splits into a **Hardware Controller** (Python) and a **Command Dashb
 | **Controller** | Raspberry Pi 3B+ |
 | **Backend Logic**| Python 3.9+ |
 | **Realtime Sync**| Firebase Realtime Database (`firebase-admin` / SDK 10+) |
-| **Frontend** | HTML5, CSS3, Vanilla JavaScript |
+| **Frontend** | HTML5, CSS3, Vanilla JavaScript (Station Master UI + Public UI) |
 | **Text-to-Speech**| Google Text-to-Speech (`gTTS`) |
-| **Audio Processing**| `pydub`, `playsound`, `ffplay` |
+| **Audio Processing**| `pydub`, `ffplay` (Native fast multimedia) |
 | **Hardware Components**| 2x KY-032 IR Sensors (In & Out), MFRC522 RFID, SG90 Servo, LEDs |
 
 ---
@@ -55,9 +54,12 @@ SmartRailway/
 │   ├── project.mp3         # Fallback default skeletal audio
 │   └── late.mp3            # Native chime for delay warning
 ├── dashboard/              # Web Controller Interface
-│   ├── index.html          # Dashboard Markup
+│   ├── index.html          # Public Dashboard Markup
 │   ├── style.css           # Modern Web Design attributes
-│   └── app.js              # Real-time state listeners & UI rendering
+│   ├── app.js              # Real-time state listeners & UI rendering
+│   ├── station_master.html # Central Control Interface
+│   ├── station_master.css  # Web App GUI overrides
+│   └── station_master.js   # Timetable routing & Custom TTS integration
 ├── docs/                   # Full Technical Documentation
 │   ├── CIRCUIT_DIAGRAM.md  # Raspberry Pi GPIO schematics
 │   ├── FIREBASE_SETUP.md   # Deployment walkthrough for database setup
@@ -101,8 +103,8 @@ The dashboard is entirely static and client-side (Serverless). Simply open `Smar
 ## 🎮 Usage Guide
 
 - **Auto Mode:** Leave the Python script running. The system will detect trains on the track natively, cycle the traffic lights yellow-to-red, close the mechanical servos, pull the respective ID over RFID, play scheduled passenger audio natively, and write telemetry out to the web in under 400ms.
-- **Manual Mode:** From the dashboard, flip the **"Enable Override"** switch. You now control the physical servo gate (Open/Close) and traffic lights directly.
-- **Station Master Announcements:** Even when in auto mode, you can type a specific train number into the dashboard and click `Play Announcement`. The Raspberry Pi will intercept the trigger and forcefully announce it across the station speakers via text-to-speech formulation!
+- **Station Master Manual Operation:** Navigate to `station_master.html`. Click any incoming train block to trigger its physical audio sequence across the backend, toggle the visual day of the week, or explicitly close the gate via software button injection!
+- **Custom Station Audio:** Use the Text Box inside the Announcement panel to invent a new announcement and deploy it remotely to the system!
 
 ---
 

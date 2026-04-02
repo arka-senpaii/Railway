@@ -399,6 +399,15 @@ input:checked+.slider::before{transform:translateX(24px)}
 }
 
 
- . g a t e - a r m . c l o s i n g - a n i m a t i o n { t r a n s f o r m : r o t a t e ( - 4 5 d e g ) ;   a n i m a t i o n :   p u l s e - w a r n i n g   1 s   i n f i n i t e   a l t e r n a t e } 
- @ k e y f r a m e s   p u l s e - w a r n i n g   { 0 % { t r a n s f o r m : r o t a t e ( - 4 5 d e g ) } 1 0 0 % { t r a n s f o r m : r o t a t e ( - 3 5 d e g ) } }  
- 
+/* --- Station Master Nav Link --- */
+.sm-nav-link{
+  color:var(--text-secondary); font-size:.78rem; text-decoration:none;
+  padding:.35rem .85rem; border:1px solid var(--glass-border);
+  border-radius:10px; transition:var(--transition);
+  font-weight:600; letter-spacing:.3px;
+  background:rgba(59,130,246,0.06);
+}
+.sm-nav-link:hover{
+  color:#22d3ee; border-color:#22d3ee;
+  background:rgba(34,211,238,0.08);
+}

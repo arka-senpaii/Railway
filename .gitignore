@@ -3,3 +3,6 @@ __pycache__/
 *firebase-adminsdk*.json
 serviceAccountKey.json
 .vscode/
+
+raspberry_pi/.tts_cache/
+*.wav

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Station Master — Smart Railway Control</title>
+  <meta name="description" content="Station Master control panel for Smart Railway automation — manage gate, signals, and announcements in real time." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="station_master.css" />
+</head>
+<body>
+
+  <!-- ═══ TOP BAR ═══ -->
+  <header id="top-bar">
+    <div class="top-left">
+      <a href="index.html" class="back-link" id="nav-back">← Dashboard</a>
+      <div class="logo-group">
+        <span class="logo-icon">🚉</span>
+        <div>
+          <h1>Station Master</h1>
+          <p class="subtitle">Adra Junction — Control Panel</p>
+        </div>
+      </div>
+    </div>
+    <div class="top-right">
+      <span id="connection-badge" class="badge badge-offline">
+        <span class="pulse-dot"></span> Offline
+      </span>
+      <time id="live-clock">--:--:--</time>
+    </div>
+  </header>
+
+  <!-- ═══ LIVE STATUS RIBBON ═══ -->
+  <section id="status-ribbon">
+    <div class="ribbon-item" id="ribbon-gate">
+      <span class="ribbon-icon">🚧</span>
+      <div>
+        <span class="ribbon-label">Gate</span>
+        <span class="ribbon-value" id="ribbon-gate-val">OPEN</span>
+      </div>
+    </div>
+    <div class="ribbon-item" id="ribbon-signal">
+      <span class="ribbon-icon">🚦</span>
+      <div>
+        <span class="ribbon-label">Signal</span>
+        <span class="ribbon-value" id="ribbon-signal-val">GREEN</span>
+      </div>
+    </div>
+    <div class="ribbon-item" id="ribbon-mode">
+      <span class="ribbon-icon">⚙️</span>
+      <div>
+        <span class="ribbon-label">Mode</span>
+        <span class="ribbon-value" id="ribbon-mode-val">AUTO</span>
+      </div>
+    </div>
+    <div class="ribbon-item" id="ribbon-train">
+      <span class="ribbon-icon">🚆</span>
+      <div>
+        <span class="ribbon-label">Current Train</span>
+        <span class="ribbon-value" id="ribbon-train-val">None</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ MAIN LAYOUT ═══ -->
+  <main id="sm-grid">
+
+    <!-- ── LEFT: Controls Panel ── -->
+    <section class="panel controls-panel" id="controls-panel">
+      <h2 class="panel-title"><span class="title-icon">🎛️</span> Controls</h2>
+
+      <!-- Manual Override -->
+      <div class="control-block" id="override-block">
+        <div class="override-row">
+          <div>
+            <span class="block-label">Manual Override</span>
+            <span class="block-hint" id="override-hint">Auto mode active</span>
+          </div>
+          <label class="toggle" for="sm-override-toggle">
+            <input type="checkbox" id="sm-override-toggle" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Gate Control -->
+      <div class="control-block" id="gate-block">
+        <span class="block-label">Gate Control</span>
+        <div class="btn-pair">
+          <button class="sm-btn sm-btn-success" id="sm-btn-gate-open" disabled>
+            <span class="btn-icon">🔓</span> Open Gate
+          </button>
+          <button class="sm-btn sm-btn-danger" id="sm-btn-gate-close" disabled>
+            <span class="btn-icon">🔒</span> Close Gate
+          </button>
+        </div>
+      </div>
+
+      <!-- Signal Control -->
+      <div class="control-block" id="signal-block">
+        <span class="block-label">Traffic Signal</span>
+        <div class="signal-btns">
+          <button class="sm-btn signal-btn signal-red" id="sm-btn-red" disabled>
+            <span class="signal-dot red-dot"></span> Red
+          </button>
+          <button class="sm-btn signal-btn signal-yellow" id="sm-btn-yellow" disabled>
+            <span class="signal-dot yellow-dot"></span> Yellow
+          </button>
+          <button class="sm-btn signal-btn signal-green" id="sm-btn-green" disabled>
+            <span class="signal-dot green-dot"></span> Green
+          </button>
+        </div>
+      </div>
+
+      <!-- Mini Traffic Light Preview -->
+      <div class="mini-signal-preview">
+        <div class="mini-housing">
+          <div class="mini-light mini-red" id="mini-red"></div>
+          <div class="mini-light mini-yellow" id="mini-yellow"></div>
+          <div class="mini-light mini-green active" id="mini-green"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── CENTER: Announcement + Train Info ── -->
+    <section class="panel announce-panel" id="announce-panel">
+      <h2 class="panel-title"><span class="title-icon">🔊</span> Announcements</h2>
+
+      <!-- Custom Text Announcement -->
+      <div class="custom-announce-block" style="margin-bottom:1.2rem; background:rgba(0,0,0,0.2); padding:.8rem; border-radius:var(--radius-sm); border:1px solid rgba(255,255,255,0.04);">
+        <label class="selector-label" for="sm-custom-text">Custom Announcement</label>
+        <div style="display:flex; gap:.5rem;">
+          <input type="text" id="sm-custom-text" class="sm-input" placeholder="Type message to speak (e.g. Train delayed)" />
+          <button class="sm-btn sm-btn-success" id="sm-btn-custom-announce" style="flex:0 0 auto; padding:.55rem 1rem;">
+            Play
+          </button>
+        </div>
+      </div>
+
+      <!-- Train Selector -->
+      <div class="announce-selector">
+        <label class="selector-label" for="sm-train-select">Select Train</label>
+        <div class="selector-row">
+          <select id="sm-train-select" class="sm-select">
+            <option value="">— Loading timetable —</option>
+          </select>
+          <span class="or-divider">or</span>
+          <input type="text" id="sm-train-input" class="sm-input" placeholder="Train No (e.g. 12282)" />
+        </div>
+      </div>
+
+      <!-- Announce Button -->
+      <button class="announce-btn" id="sm-btn-announce" disabled>
+        <span class="announce-icon">📢</span>
+        <span>Play Announcement on Pi</span>
+      </button>
+
+      <!-- Train Info Card -->
+      <div class="train-detail-card" id="train-detail-card">
+        <div class="detail-header">
+          <span class="detail-train-no" id="detail-no">—</span>
+          <span class="detail-train-name" id="detail-name">Select a train</span>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-item">
+            <span class="d-label">From</span>
+            <span class="d-value" id="detail-from">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="d-label">To</span>
+            <span class="d-value" id="detail-to">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="d-label">Arrival</span>
+            <span class="d-value" id="detail-arrival">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="d-label">Platform</span>
+            <span class="d-value" id="detail-platform">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Announce Buttons -->
+      <div class="quick-announce" id="quick-announce">
+        <span class="block-label">Quick Announce</span>
+        <div class="quick-grid" id="quick-grid">
+          <!-- populated by JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ── RIGHT: Timetable + Log ── -->
+    <section class="panel table-panel" id="table-panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.1rem; padding-bottom:.55rem; border-bottom:1px solid var(--glass-border);">
+        <h2 class="panel-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">
+          <span class="title-icon">🕐</span> Timetable
+          <span class="train-count-badge" id="sm-train-count">0</span>
+        </h2>
+        
+        <select id="sm-day-select" class="sm-select" style="padding:.3rem .6rem; font-size:.75rem; width:110px; background:rgba(8,12,24,0.9);">
+          <option value="Sun">Sunday</option>
+          <option value="Mon">Monday</option>
+          <option value="Tue">Tuesday</option>
+          <option value="Wed">Wednesday</option>
+          <option value="Thu">Thursday</option>
+          <option value="Fri">Friday</option>
+          <option value="Sat">Saturday</option>
+        </select>
+      </div>
+      
+      <div class="sm-table-wrap" id="sm-table-wrap">
+        <table class="sm-table" id="sm-timetable">
+          <thead>
+            <tr>
+              <th>Train</th>
+              <th>Name</th>
+              <th>From</th>
+              <th>To</th>
+              <th>Arr.</th>
+              <th>Pf</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="sm-timetable-body">
+            <tr><td colspan="8" class="empty-msg">Connecting to Firebase…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- ═══ EVENT LOG ═══ -->
+  <section class="panel log-panel" id="log-panel">
+    <div class="log-top">
+      <h2 class="panel-title" style="margin-bottom:0"><span class="title-icon">📋</span> Event Log</h2>
+      <button class="sm-btn sm-btn-ghost" id="sm-btn-clear-log">Clear</button>
+    </div>
+    <div class="sm-log-feed" id="sm-log-feed">
+      <div class="log-line log-info">
+        <time>--:--:--</time><span>Waiting for connection…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+  <script src="station_master.js"></script>
+</body>
+</html>

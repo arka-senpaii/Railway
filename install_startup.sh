@@ -9,10 +9,20 @@ BOLD='\033[1m'
 
 echo -e "${CYAN}${BOLD}>>> Smart Railway Service Installer <<<${NC}\n"
 
+# Get correct user even if running via sudo
+if [ -n "$SUDO_USER" ]; then
+  ACTUAL_USER=$SUDO_USER
+else
+  ACTUAL_USER=$USER
+fi
+
 # Get current script path
 cd "$(dirname "$0")"
 PROJECT_DIR=$(pwd)
 SERVICE_FILE="/etc/systemd/system/smart-railway.service"
+
+echo -e "${YELLOW}[0] Making autorun script executable...${NC}"
+chmod +x "$PROJECT_DIR/autorun.sh"
 
 echo -e "${YELLOW}[1] Generating systemd service file...${NC}"
 
@@ -31,8 +41,8 @@ StandardOutput=inherit
 StandardError=inherit
 Restart=always
 RestartSec=10
-# Assumes running as the default pi user. Change if different.
-User=$USER
+# Assumes running as the default pi user. Resolves safely even inside sudo.
+User=$ACTUAL_USER
 
 [Install]
 WantedBy=multi-user.target

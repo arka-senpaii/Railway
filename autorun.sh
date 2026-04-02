@@ -52,17 +52,8 @@ echo -e "${YELLOW}[+]${NC} Synthesizing Dependencies..."
 pip install -r raspberry_pi/requirements.txt -q
 echo -e "${GREEN}[✓] Modules Loaded.${NC}"
 
-# Initialize Firebase with the 3-field structure
-echo -e "${YELLOW}[+]${NC} Uplinking to Firebase (Seeding Gate Status)..."
-cd raspberry_pi
-python3 run_demo.py
-SEED_STATUS=$?
-cd "$PROJECT_DIR"
-if [ $SEED_STATUS -eq 0 ]; then
-    echo -e "${GREEN}[✓] Firebase Uplink Successful.${NC}"
-else
-    echo -e "${RED}[!] Firebase seed failed — continuing anyway.${NC}"
-fi
+# Initialize Firebase connection implicitly handled inside main.py
+echo -e "${YELLOW}[+]${NC} Preparing Firebase Connection Protocol..."
 
 # Start backend python script in the background
 echo -e "${YELLOW}[+]${NC} Engaging Core Hardware Controllers..."
@@ -71,6 +62,9 @@ python3 main.py > "$PROJECT_DIR/railway_core.log" 2>&1 &
 CORE_PID=$!
 cd "$PROJECT_DIR"
 echo -e "${GREEN}[✓] Core Online (PID: $CORE_PID, Logs: railway_core.log).${NC}"
+
+# Add a cleanup trap so the background backend dies when this script is stopped by systemd!
+trap 'echo -e "\n${RED}[!] Stopping Core Controller...${NC}"; kill $CORE_PID; exit 0' SIGINT SIGTERM EXIT
 
 # Serve your web dashboard
 echo -e "${YELLOW}[+]${NC} Launching Orbital Dashboard..."

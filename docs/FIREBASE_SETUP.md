@@ -92,39 +92,23 @@ For the hackathon demo, use these permissive rules:
 
 ---
 
-## 7. Populate Sample Schedule Data
+## 7. Master Timetable Uploading
 
-In the Firebase Console → Realtime Database, click **"+"** to add:
-
-```
-schedules/
-├── 22812/
-│   ├── name: "Rajdhani Express (via Adra)"
-│   ├── scheduled_arrival: "08:15"
-│   └── platform: "4"
-├── 12282/
-│   ├── name: "Duronto Express"
-│   ├── scheduled_arrival: "04:10"
-│   └── platform: "4"
-├── 12883/
-│   ├── name: "Rupasi Bangla Express"
-│   ├── scheduled_arrival: "10:51"
-│   └── platform: "1"
-```
-
-The Python code primarily uses the local CSV data (`adrajndet.csv`) for schedule lookup, so this Firebase schedule data is optional and used for cloud-based fallback.
+You do NOT need to add anything manually to Firebase for schedules. 
+When you run `main.py` on the Raspberry Pi with your credentials, the backend natively consumes the massive `adrajn.csv` and `adrajndet.csv` data and uses `self.firebase.push_timetable()` to seed all of your `[From, To, Arrival, Name, Days]` data into the cloud natively. All UI dynamically hooks into this.
 
 ---
 
-## 8. Required Database Structure
+## 8. Database Architecture Reference
 
-The system automatically creates these nodes:
+The system operates off a flattened node-leaf structure for blazing fast real-time overrides and UI updating:
 
 ```
-/train       → { id, status, delay, timestamp }
-/gate        → { status, timestamp }
-/traffic_light → { state, timestamp }
-/manual_override → { enabled, gate, traffic_light }
-/logs        → { auto-keyed log entries }
-/schedules   → { train_id: { name, scheduled_arrival, platform } }
+/current_gate_status       → "OPEN" or "CLOSED" (Real-time physical servo state)
+/gate_status               → "OPEN" or "CLOSED" (UI Command override for motors)
+/manual_mode               → 1 or 0 (Toggles Station Master override panel)
+/timetable                 → [ Array of ~50 trains ] (Pushed by Pi at boot)
+/current_train             → "12282" (Highlights the timetable explicitly)
+/trigger_announcement      → "12282" (Command pushed by Station Master to speak)
+/custom_announcement       → "Alert: Platform 2 is closed." (TTS string request)
 ```

@@ -15,7 +15,7 @@ import threading
 from datetime import datetime, timezone
 from collections import deque
 
-from config import FIREBASE_CREDENTIALS_PATH, FIREBASE_DATABASE_URL
+from config import FIREBASE_CREDENTIALS_PATH, FIREBASE_DATABASE_URL, OFFLINE_QUEUE_MAX
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class FirebaseClient:
 
     def __init__(self):
         self.connected = False
-        self._offline_queue: deque = deque(maxlen=500)
+        self._offline_queue: deque = deque(maxlen=OFFLINE_QUEUE_MAX)
         self._lock = threading.Lock()
 
         if not FIREBASE_AVAILABLE:
@@ -197,3 +197,29 @@ class FirebaseClient:
             db.reference("/").update({"trigger_announcement": ""})
         except Exception:
             pass
+
+    def clear_custom_announcement(self):
+        """Reset the custom announcement node after it's been handled."""
+        if not FIREBASE_AVAILABLE:
+            return
+        try:
+            db.reference("/").update({"custom_announcement": ""})
+        except Exception:
+            pass
+
+    # ─── Realtime Event Listener (Event-Driven Architecture) ─────────────
+
+    def listen_to_root(self, callback):
+        """
+        Listen to real-time changes at the root of the database.
+        This provides instant, push-based updates instead of polling.
+        Callback receives `event` with `event.path` and `event.data`.
+        Returns the listener registration object.
+        """
+        if not FIREBASE_AVAILABLE:
+            return None
+        try:
+            return db.reference("/").listen(callback)
+        except Exception as exc:
+            logger.error(f"Failed to start Firebase listener: {exc}")
+            return None

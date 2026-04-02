@@ -16,6 +16,7 @@
 | 10 | Breadboard + Jumper Wires | — | Connections |
 | 11 | 5V 2.5A Power Supply | 1 | Raspberry Pi power |
 | 12 | RFID Cards/Tags | 2-3 | Train identification tags |
+| 13 | 3.5mm Aux Speaker | 1 | Hardware announcement playback output |
 
 ---
 

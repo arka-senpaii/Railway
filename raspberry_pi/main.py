@@ -1,14 +1,27 @@
 """
 Smart Railway Automation System — Main Controller
 ====================================================
-Orchestrates sensors, actuators, Firebase sync, RFID announcements,
-and manual-override mode using a state-machine approach.
+Orchestrates sensors, actuators, Firebase sync, and announcements
+using a state-machine approach.
 
-Usage (on Raspberry Pi):
-    python main.py
+HARDWARE-FIRST RULE:
+  Every state transition issues hardware commands (light / gate / buzzer)
+  *synchronously* on the main thread.  All Firebase writes and TTS
+  generation run in daemon background threads so they never delay the
+  physical hardware response.
 
-Usage (simulation on desktop):
-    python main.py --simulate
+States
+------
+IDLE        → green light, gate open, waiting for train
+APPROACHING → yellow light + buzzer warn; transitions quickly to PASSING
+PASSING     → red light, gate closed, train on track
+DEPARTED    → gate opens, returns to IDLE
+
+Usage
+-----
+    python main.py            # on Raspberry Pi
+    python main.py --simulate # desktop simulation (no GPIO)
+    python main.py --debug    # verbose logging
 """
 
 import sys
@@ -17,7 +30,7 @@ import signal
 import logging
 import argparse
 import threading
-from datetime import datetime, timezone
+from datetime import datetime
 
 from config import (
     TrainState, GateState, LightState,
@@ -25,18 +38,17 @@ from config import (
     FIREBASE_SYNC_INTERVAL, IR_SENSOR_IN_PIN, IR_SENSOR_OUT_PIN,
     LOG_LEVEL, MAIN_LOOP_SLEEP,
 )
-from sensors import IRSensor, RFIDReader
-from actuators import ServoGate, TrafficLight, Buzzer
+from sensors       import IRSensor, RFIDReader
+from actuators     import ServoGate, TrafficLight, Buzzer
 from firebase_client import FirebaseClient
-from announcement import AnnouncementEngine, TrainScheduleDB
-from manual_mode import ManualModeController
+from announcement  import AnnouncementEngine, TrainScheduleDB
+from manual_mode   import ManualModeController
 
-# ─── Logging setup ───────────────────────────────────────────────────────────
+# ─── CLI args & logging ───────────────────────────────────────────────────────
 
-# Parse CLI args early so we can set log level
 _parser = argparse.ArgumentParser(description="Smart Railway Controller")
-_parser.add_argument("--debug", action="store_true", help="Enable verbose INFO/DEBUG logging")
-_parser.add_argument("--simulate", action="store_true", help="Run in desktop simulation mode")
+_parser.add_argument("--debug",    action="store_true", help="Verbose logging")
+_parser.add_argument("--simulate", action="store_true", help="Desktop simulation (no GPIO)")
 _args = _parser.parse_args()
 
 logging.basicConfig(
@@ -46,75 +58,62 @@ logging.basicConfig(
 )
 logger = logging.getLogger("RailwaySystem")
 
-# ═══════════════════════════════════════════════════════════════════════════════
+
+# ═════════════════════════════════════════════════════════════════════════════
 #  Railway Automation Controller
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
 
 class RailwayController:
-    """
-    Main state-machine controller.
-
-    States
-    ------
-    IDLE        → green light, gate open, waiting for train
-    APPROACHING → yellow→red light, gate closing, train detected by IR
-    PASSING     → red light, gate closed, train is on the track
-    DEPARTED    → transition back to IDLE after train clears
-    """
 
     def __init__(self):
         logger.info("=" * 60)
         logger.info("  Smart Railway Automation System")
         logger.info("=" * 60)
 
-        # ── Components ──
-        self.ir_sensor_in = IRSensor(pin=IR_SENSOR_IN_PIN)
-        self.ir_sensor_out = IRSensor(pin=IR_SENSOR_OUT_PIN)
-        self.rfid_reader = RFIDReader()
-        self.gate = ServoGate()
-        self.light = TrafficLight()
-        self.buzzer = Buzzer()
-        self.firebase = FirebaseClient()
-        self.schedule_db = TrainScheduleDB()
-        self.announcer = AnnouncementEngine(self.firebase, self.schedule_db)
-        self.manual_ctrl = ManualModeController(
+        # ── Hardware components ──
+        self.ir_in    = IRSensor(pin=IR_SENSOR_IN_PIN)
+        self.ir_out   = IRSensor(pin=IR_SENSOR_OUT_PIN)
+        self.rfid     = RFIDReader()
+        self.gate     = ServoGate()
+        self.light    = TrafficLight()
+        self.buzzer   = Buzzer()
+
+        # ── Software components ──
+        self.firebase     = FirebaseClient()
+        self.schedule_db  = TrainScheduleDB()
+        self.announcer    = AnnouncementEngine(self.firebase, self.schedule_db)
+        self.manual_ctrl  = ManualModeController(
             self.firebase, self.gate, self.light, self.buzzer, self.announcer,
             on_gate_close_callback=self._on_manual_gate_closed,
-            on_gate_open_callback=self._on_manual_gate_opened
+            on_gate_open_callback=self._on_manual_gate_opened,
         )
 
         # ── State ──
-        self.state = TrainState.IDLE
-        self.current_train_id = None
-        self._last_detection_time = 0.0
-        self._passing_start_time = 0.0
-        self._out_sensor_triggered = False
-        self._running = False
+        self.state                  = TrainState.IDLE
+        self.current_train_id       = None
+        self._last_detection_time   = 0.0
+        self._passing_start_time    = 0.0
+        self._out_sensor_triggered  = False
+        self._running               = False
 
-    # ── Lifecycle ────────────────────────────────────────────────────────────
+    # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def start(self):
-        """Initialise everything and enter the main loop."""
         self._running = True
-        signal.signal(signal.SIGINT, self._shutdown_handler)
+        signal.signal(signal.SIGINT,  self._shutdown_handler)
         signal.signal(signal.SIGTERM, self._shutdown_handler)
 
-        # Set initial state
-        self._set_idle_state()
+        # Hardware-first: set IDLE state before any network calls
+        self._set_idle_state_hardware()
         self.manual_ctrl.start()
 
-        # Push the full timetable to Firebase so the dashboard can handle multi-day display natively
-        all_trains = self.schedule_db.get_all_trains()
-        if all_trains:
-            self.firebase.push_timetable(all_trains)
-            logger.info(f"Pushed {len(all_trains)} total master schedule trains to Firebase timetable.")
-        self.firebase.update_current_train(None)
+        # Push timetable + reset current_train in background
+        threading.Thread(target=self._startup_firebase, daemon=True).start()
 
-        # Pre-generate all announcements in background so they're instant
+        # Pre-generate upcoming announcements in background
         self.announcer.pregenerate_todays_announcements()
 
-        logger.info("System online. Entering main loop ...")
-
+        logger.info("System online — entering main loop.")
         try:
             self._main_loop()
         except KeyboardInterrupt:
@@ -122,56 +121,64 @@ class RailwayController:
         finally:
             self.shutdown()
 
+    def _startup_firebase(self):
+        """Push initial data to Firebase in a background thread."""
+        all_trains = self.schedule_db.get_all_trains()
+        if all_trains:
+            self.firebase.push_timetable(all_trains)
+            logger.info(f"Pushed {len(all_trains)} trains to Firebase timetable.")
+        self.firebase.update_current_train(None)
+        self.firebase.push_all("OPEN", "OPEN", 0)
+
     def shutdown(self):
-        """Clean up all hardware resources."""
         self._running = False
-        logger.info("Shutting down ...")
+        logger.info("Shutting down …")
         self.manual_ctrl.stop()
-        self.gate.open_gate()          # safety: leave gate open
+        # Safety: always leave gate open on shutdown
+        self.gate.open_gate()
         self.light.all_off()
         self.buzzer.off()
-        self.ir_sensor_in.cleanup()
-        self.ir_sensor_out.cleanup()
-        self.rfid_reader.cleanup()
+        self.ir_in.cleanup()
+        self.ir_out.cleanup()
+        self.rfid.cleanup()
         self.gate.cleanup()
         self.light.cleanup()
         self.buzzer.cleanup()
-        self.firebase.update_current_gate_status("OPEN")
+        # Final Firebase update (best-effort)
+        try:
+            self.firebase.update_current_gate_status("OPEN")
+        except Exception:
+            pass
         logger.info("Shutdown complete.")
 
     def _shutdown_handler(self, signum, frame):
         logger.info(f"Signal {signum} received — shutting down.")
         self._running = False
 
-    # ── Main Loop ────────────────────────────────────────────────────────────
+    # ── Main Loop ─────────────────────────────────────────────────────────────
 
     def _main_loop(self):
         while self._running:
-            # If manual override is active, skip automatic logic
             if self.manual_ctrl.is_enabled:
                 time.sleep(0.5)
                 continue
 
-            # Flush any queued Firebase writes
-            self.firebase.flush_offline_queue()
+            # Flush any queued offline Firebase writes (non-blocking attempt)
+            threading.Thread(
+                target=self.firebase.flush_offline_queue, daemon=True
+            ).start()
 
-            # State machine transitions
-            if self.state == TrainState.IDLE:
-                self._handle_idle()
-
-            elif self.state == TrainState.APPROACHING:
-                self._handle_approaching()
-
-            elif self.state == TrainState.PASSING:
-                self._handle_passing()
-
-            elif self.state == TrainState.DEPARTED:
-                self._handle_departed()
+            if   self.state == TrainState.IDLE:        self._handle_idle()
+            elif self.state == TrainState.APPROACHING:  self._handle_approaching()
+            elif self.state == TrainState.PASSING:      self._handle_passing()
+            elif self.state == TrainState.DEPARTED:     self._handle_departed()
 
             time.sleep(MAIN_LOOP_SLEEP)
 
+    # ── Manual-mode callbacks ─────────────────────────────────────────────────
+
     def _on_manual_gate_closed(self):
-        """Callback from ManualModeController when the gate is manually closed."""
+        """Called by ManualModeController when the gate is manually closed."""
         def _task():
             if self.current_train_id is None:
                 train_id = self._predict_current_train()
@@ -179,152 +186,177 @@ class RailwayController:
                     self.current_train_id = train_id
                     self.firebase.update_current_train(train_id)
                     result = self.announcer.generate_and_play(train_id)
-                    logger.info(f"Manual Override Prediction Identified Train: {train_id} — Announcement: {result['message']}")
-                    if result.get('delay_minutes', 0) > 0:
+                    logger.info(f"Manual prediction → Train {train_id}: {result['message']}")
+                    if result.get("delay_minutes", 0) > 0:
                         self.announcer.generate_late_announcement(
-                            result['train_data'], result['delay_minutes']
+                            result["train_data"], result["delay_minutes"]
                         )
-                        
         threading.Thread(target=_task, daemon=True).start()
 
     def _on_manual_gate_opened(self):
-        """Callback from ManualModeController when the gate is manually opened."""
         self.current_train_id = None
-        self.firebase.update_current_train(None)
+        threading.Thread(
+            target=lambda: self.firebase.update_current_train(None), daemon=True
+        ).start()
 
-    # ── State Handlers ───────────────────────────────────────────────────────
+    # ── State Handlers ────────────────────────────────────────────────────────
 
     def _handle_idle(self):
-        """IDLE: Wait for the IN IR sensor to detect a train."""
-        if self.ir_sensor_in.is_obstacle_detected():
-            logger.info("🚆 Train detected by IN IR sensor!")
+        """IDLE — wait for IR IN sensor to fire."""
+        if self.ir_in.is_obstacle_detected():
+            logger.info("🚆 Train detected by IN sensor!")
             self._last_detection_time = time.time()
             self._transition_to_approaching()
 
-    def _predict_current_train(self) -> str | None:
-        """Find the train in today's schedule whose scheduled arrival time is closest to now."""
-        today_trains = self.schedule_db.get_todays_trains()
-        if not today_trains:
-            return None
-
-        now = datetime.now()
-        now_minutes = now.hour * 60 + now.minute
-        
-        best_train_id = None
-        min_diff = 999999
-
-        for train in today_trains:
-            arrival_str = train.get("Arrival_Time", "")
-            if not arrival_str or arrival_str in ("--", "N/A"):
-                continue
-
-            # Parse HH:MM from arrival_str
-            try:
-                parts = arrival_str.split(":")
-                hh = int(parts[0])
-                mm = int(parts[1])
-                arr_minutes = hh * 60 + mm
-                diff = abs(arr_minutes - now_minutes)
-                
-                # Account for midnight wrap-around seamlessly
-                if diff > 12 * 60:
-                    diff = 24 * 60 - diff
-                    
-                if diff < min_diff:
-                    min_diff = diff
-                    best_train_id = train["Train_No"]
-            except Exception:
-                pass
-
-        return best_train_id
-
     def _handle_approaching(self):
-        """APPROACHING: Warning phase — yellow light, then red + gate close."""
-        # If IN IR still detects, train is moving to PASSING
-        if self.ir_sensor_in.is_obstacle_detected():
+        """
+        APPROACHING — yellow warning phase.
+
+        Hardware timeout is YELLOW_WARNING_DURATION (1 s).
+        As soon as the timer expires we immediately:
+          1. Set RED light        ← HARDWARE (synchronous, main thread)
+          2. Close gate           ← HARDWARE (synchronous, main thread)
+          3. Sound buzzer x 3     ← HARDWARE (synchronous, main thread)
+          4. Update Firebase      ← NETWORK  (background thread)
+          5. Predict + announce   ← TTS/NET  (background thread)
+
+        This ordering guarantees the physical gate closes in ~1 s after
+        detection regardless of network latency or TTS generation time.
+        """
+        # Refresh detection timestamp while sensor still sees the train
+        if self.ir_in.is_obstacle_detected():
             self._last_detection_time = time.time()
 
-        # Software Time-Based Prediction (Replaces RFID hardware)
-        if self.current_train_id is None:
-            train_id = self._predict_current_train()
-            if train_id:
-                self.current_train_id = train_id
-                self.firebase.update_current_train(train_id)
-                result = self.announcer.generate_and_play(train_id)
-                logger.info(f"Automated Prediction Identified Train: {train_id} — Announcement: {result['message']}")
-                if result.get('delay_minutes', 0) > 0:
-                    self.announcer.generate_late_announcement(
-                        result['train_data'], result['delay_minutes']
-                    )
-
-        # After yellow warning, switch to red and close gate
         elapsed = time.time() - self._last_detection_time
         if elapsed < YELLOW_WARNING_DURATION:
-            return  # still in yellow phase
+            return  # still in yellow warning window
 
-        # Move to PASSING state
+        # ── 1-3: HARDWARE FIRST (runs synchronously on main thread) ──────────
         self.state = TrainState.PASSING
-        self._passing_start_time = time.time()
+        self._passing_start_time   = time.time()
         self._out_sensor_triggered = False
-        self.light.set_state(LightState.RED)
-        self.gate.close_gate()
-        self.buzzer.beep(times=3)
 
-        self.firebase.update_current_gate_status("CLOSED")
-        self.firebase.update_gate_status("CLOSED")
+        self.light.set_state(LightState.RED)   # physical LED change
+        self.gate.close_gate()                  # servo motor
+        self.buzzer.beep(times=3)               # beep beep beep
         logger.info("State → PASSING (red light, gate closed)")
 
+        # ── 4-5: NETWORK + TTS in background (never blocks hardware) ─────────
+        def _bg():
+            # Firebase gate status
+            self.firebase.update_current_gate_status("CLOSED")
+            self.firebase.update_gate_status("CLOSED")
+
+            # Train prediction & announcement
+            if self.current_train_id is None:
+                train_id = self._predict_current_train()
+                if train_id:
+                    self.current_train_id = train_id
+                    self.firebase.update_current_train(train_id)
+                    result = self.announcer.generate_and_play(train_id)
+                    logger.info(
+                        f"Prediction → Train {train_id}: {result['message']}"
+                    )
+                    if result.get("delay_minutes", 0) > 0:
+                        self.announcer.generate_late_announcement(
+                            result["train_data"], result["delay_minutes"]
+                        )
+
+        threading.Thread(target=_bg, daemon=True).start()
+
     def _handle_passing(self):
-        """PASSING: Train is on the track; wait for it to clear OUT sensor."""
-        # Fallback timeout
+        """PASSING — wait for train to clear the OUT sensor."""
+        # Safety timeout: reset if train never reaches OUT sensor
         if time.time() - self._passing_start_time >= MAX_PASSING_TIMEOUT:
-            logger.warning("TIMEOUT: Train did not reach OUT sensor. Resetting to IDLE.")
+            logger.warning("TIMEOUT: OUT sensor never triggered — resetting.")
             self.state = TrainState.DEPARTED
             return
-            
-        is_detecting = self.ir_sensor_out.is_obstacle_detected()
-        if is_detecting:
-            if not self._out_sensor_triggered:
-                logger.info("Train has reached the OUT sensor...")
-                self._out_sensor_triggered = True
-        else:
-            if self._out_sensor_triggered:
-                logger.info("✓ Track clear — train has passed OUT sensor.")
-                self.state = TrainState.DEPARTED
+
+        detecting = self.ir_out.is_obstacle_detected()
+        if detecting and not self._out_sensor_triggered:
+            logger.info("Train at OUT sensor …")
+            self._out_sensor_triggered = True
+        elif not detecting and self._out_sensor_triggered:
+            logger.info("✓ Track clear — train passed OUT sensor.")
+            self.state = TrainState.DEPARTED
 
     def _handle_departed(self):
-        """DEPARTED: Open gate, return to IDLE."""
+        """
+        DEPARTED — revert to safe IDLE state.
+
+        Hardware first, Firebase in background.
+        """
+        # ── HARDWARE (synchronous) ────────────────────────────────────────────
         self.gate.open_gate()
         self.buzzer.off()
         self.current_train_id = None
-        self.firebase.update_current_train(None)
-        self._set_idle_state()
+        self._set_idle_state_hardware()
         logger.info("State → IDLE (green light, gate open)")
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+        # ── FIREBASE (background) ─────────────────────────────────────────────
+        threading.Thread(
+            target=lambda: (
+                self.firebase.update_current_train(None),
+                self.firebase.push_all("OPEN", "OPEN", 0),
+            ),
+            daemon=True,
+        ).start()
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _transition_to_approaching(self):
-        """IDLE → APPROACHING: yellow light, buzzer warning."""
+        """IDLE → APPROACHING: yellow light + buzzer immediately."""
         self.state = TrainState.APPROACHING
+
+        # HARDWARE FIRST
         self.light.set_state(LightState.YELLOW)
         self.buzzer.on()
 
-        self.firebase.update_gate_status("CLOSED")
+        # Firebase update in background
+        threading.Thread(
+            target=lambda: self.firebase.update_gate_status("CLOSED"),
+            daemon=True,
+        ).start()
         logger.info("State → APPROACHING (yellow light)")
 
-    def _set_idle_state(self):
-        """Set all actuators and Firebase to IDLE defaults."""
+    def _set_idle_state_hardware(self):
+        """Apply IDLE hardware outputs (green light, gate open, buzzer off)."""
         self.state = TrainState.IDLE
         self.light.set_state(LightState.GREEN)
         self.gate.open_gate()
         self.buzzer.off()
 
-        self.firebase.push_all("OPEN", "OPEN", 0)
+    def _predict_current_train(self) -> str | None:
+        """Find the closest scheduled train to the current time."""
+        today_trains = self.schedule_db.get_todays_trains()
+        if not today_trains:
+            return None
+
+        now = datetime.now()
+        now_mins = now.hour * 60 + now.minute
+        best, min_diff = None, 999999
+
+        for train in today_trains:
+            arr = train.get("Arrival_Time", "")
+            if not arr or arr in ("--", "N/A"):
+                continue
+            try:
+                h, m = map(int, arr.split(":"))
+                diff = abs(h * 60 + m - now_mins)
+                if diff > 12 * 60:
+                    diff = 24 * 60 - diff   # midnight wrap-around
+                if diff < min_diff:
+                    min_diff = diff
+                    best = train["Train_No"]
+            except Exception:
+                pass
+
+        return best
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
 #  Entry Point
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     controller = RailwayController()
